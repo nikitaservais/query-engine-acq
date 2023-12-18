@@ -84,10 +84,7 @@ mod tests {
             },
             Atom {
                 relation_name: "R5".to_string(),
-                terms: vec![
-                    Term("u".to_string()),
-                    Term("w".to_string()),
-                ],
+                terms: vec![Term("u".to_string()), Term("w".to_string())],
             },
         ];
 

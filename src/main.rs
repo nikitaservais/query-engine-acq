@@ -1,7 +1,10 @@
-mod test;
-
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+
+use serde::Serialize;
+
+mod database;
+mod test;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Term(String);
@@ -12,13 +15,13 @@ struct Atom {
     terms: Vec<Term>,
 }
 
-struct Query {
+pub struct Query {
     _head: Atom,
     body: Vec<Atom>,
 }
 
 impl Query {
-    fn is_acyclic(&self) -> bool {
+    pub fn is_acyclic(&self) -> bool {
         let hypergraph = Hypergraph::new(self);
         hypergraph.is_acyclic()
     }
@@ -50,7 +53,9 @@ struct JoinTree {
 
 impl JoinTree {
     fn new() -> Self {
-        JoinTree { edges: HashSet::new() }
+        JoinTree {
+            edges: HashSet::new(),
+        }
     }
 
     fn add_edge(&mut self, ear: Atom, witness: Atom) {
@@ -66,7 +71,8 @@ impl fmt::Display for JoinTree {
             let ear_terms: Vec<String> = ear.terms.iter().map(|term| term.0.clone()).collect();
             write!(f, "{}", ear_terms.join(", "))?;
             write!(f, "] -> [")?;
-            let witness_terms: Vec<String> = witness.terms.iter().map(|term| term.0.clone()).collect();
+            let witness_terms: Vec<String> =
+                witness.terms.iter().map(|term| term.0.clone()).collect();
             write!(f, "{}", witness_terms.join(", "))?;
             write!(f, "]\n")?;
         }
@@ -88,7 +94,6 @@ impl Hypergraph {
         }
         Hypergraph { hyperedges: edges }
     }
-
 
     fn find_ear(&self) -> Option<(Atom, Atom)> {
         for (ear_candidate, ear_vertices) in &self.hyperedges {
@@ -126,9 +131,7 @@ impl Hypergraph {
                 remaining_hypergraph.is_acyclic()
             }
             // If no ear is found, terminate and check the hypergraph is empty
-            None => {
-                self.hyperedges.is_empty()
-            }
+            None => self.hyperedges.is_empty(),
         }
     }
 
@@ -157,45 +160,4 @@ impl Hypergraph {
     }
 }
 
-// Continue with the Query and JoinTree structs and associated methods...
-fn main() {
-    let head = Atom {
-        relation_name: "Answer".to_string(),
-        terms: vec![],
-    };
-
-    let body = vec![
-        Atom {
-            relation_name: "Beers".to_string(),
-            terms: vec![
-                Term("beer_id".to_string()),
-                Term("brew_id".to_string()),
-                Term("beer".to_string()),
-                Term("abv".to_string()),
-                Term("ibu".to_string()),
-                Term("ounces".to_string()),
-                Term("style".to_string()),
-                Term("style2".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "Styles".to_string(),
-            terms: vec![
-                Term("style_id".to_string()),
-                Term("cat_id".to_string()),
-                Term("style".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "Categories".to_string(),
-            terms: vec![
-                Term("cat_id".to_string()),
-                Term("‘Belgian and French Ale’".to_string()),
-            ],
-        },
-    ];
-
-    let query = Query { _head: head, body };
-    let join_tree = query.construct_join_tree().unwrap();
-    println!("{}", join_tree)
-}
+fn main() {}

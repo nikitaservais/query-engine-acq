@@ -646,6 +646,8 @@ name = "query-engine-acq"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "arrow-csv",
+ "serde",
 ]
 
 [[package]]
