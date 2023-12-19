@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::str::FromStr;
 
 use serde::Serialize;
 
@@ -7,7 +8,25 @@ mod database;
 mod test;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Term(String);
+enum Term {
+    Variable(String),
+    Constant(String),
+}
+
+impl fmt::Display for Term {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Term::Variable(var) => write!(f, "Variable({})", var),
+            Term::Constant(name) => write!(f, "Constant({})", name),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Variable(String);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Constant(String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Atom {
@@ -15,8 +34,9 @@ struct Atom {
     terms: Vec<Term>,
 }
 
+#[derive(Debug)]
 pub struct Query {
-    _head: Atom,
+    head: Atom,
     body: Vec<Atom>,
 }
 
@@ -160,4 +180,106 @@ impl Hypergraph {
     }
 }
 
-fn main() {}
+fn main() {
+    let query = get_query();
+    let join_tree = query.construct_join_tree().unwrap();
+    println!("{}", join_tree);
+    // load_data();
+    // read();
+}
+
+fn get_query() -> Query {
+    let head = Atom {
+        relation_name: "Answer".to_string(),
+        terms: vec![],
+    };
+
+    let body = vec![
+        Atom {
+            relation_name: "Beers".to_string(),
+            terms: vec![
+                Term::Variable("beer_id".to_string()),
+                Term::Variable("brew_id".to_string()),
+                Term::Variable("beer".to_string()),
+                Term::Variable("abv".to_string()),
+                Term::Variable("ibu".to_string()),
+                Term::Variable("ounces".to_string()),
+                Term::Variable("style".to_string()),
+                Term::Variable("style2".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "Styles".to_string(),
+            terms: vec![
+                Term::Variable("style_id".to_string()),
+                Term::Variable("cat_id".to_string()),
+                Term::Variable("style".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "Categories".to_string(),
+            terms: vec![
+                Term::Variable("cat_id".to_string()),
+                Term::Constant("Belgian and French Ale".to_string()),
+            ],
+        },
+    ];
+
+    Query { head: head, body }
+}
+
+fn get_query_1() -> Query {
+    let head = Atom {
+        relation_name: "Answer".to_string(),
+        terms: vec![],
+    };
+
+    let body = vec![
+        Atom {
+            relation_name: "Beers".to_string(),
+            terms: vec![
+                Term::Variable("u1".to_string()),
+                Term::Variable("x".to_string()),
+                Term::Variable("u2".to_string()),
+                Term::Constant("0.07".to_string()),
+                Term::Variable("u3".to_string()),
+                Term::Variable("u4".to_string()),
+                Term::Variable("y".to_string()),
+                Term::Variable("u5".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "Styles".to_string(),
+            terms: vec![
+                Term::Variable("u6".to_string()),
+                Term::Variable("z".to_string()),
+                Term::Variable("y".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "Categories".to_string(),
+            terms: vec![
+                Term::Variable("z".to_string()),
+                Term::Variable("u7".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "Breweries".to_string(),
+            terms: vec![
+                Term::Variable("x".to_string()),
+                Term::Variable("u12".to_string()),
+                Term::Variable("u13".to_string()),
+                Term::Variable("u14".to_string()),
+                Term::Variable("u15".to_string()),
+                Term::Variable("u16".to_string()),
+                Term::Variable("u17".to_string()),
+                Term::Variable("u18".to_string()),
+                Term::Variable("u13".to_string()),
+                Term::Variable("u14".to_string()),
+                Term::Variable("u15".to_string()),
+            ],
+        },
+    ];
+
+    Query { head, body }
+}

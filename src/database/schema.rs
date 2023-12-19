@@ -3,7 +3,16 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::error::ArrowError;
+use arrow::ipc::reader::FileReader;
 use arrow::ipc::writer::FileWriter;
+use arrow::util::pretty::print_batches;
+
+pub fn read() {
+    let file = File::open("db/beers.arrow").unwrap();
+    let mut reader = FileReader::try_new(file, None).unwrap();
+    let batch = reader.next().unwrap().unwrap();
+    print_batches(&[batch]).unwrap();
+}
 
 pub fn load_data() {
     load("beers.csv", beers()).expect("Failed to load beers");

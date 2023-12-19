@@ -5,6 +5,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-arrow = "49.0.0"
+arrow = { version = "49.0.0", features = ["prettyprint"] }
 arrow-csv = "49.0.0"
 serde = { version = "1.0.193", features = ["derive"] }
+nom = "7.1.3"

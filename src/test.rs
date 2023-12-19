@@ -40,7 +40,7 @@ mod tests {
             },
         ];
 
-        let query = Query { _head: head, body };
+        let query = Query { head: head, body };
         let hypergraph = Hypergraph::new(&query);
         assert!(hypergraph.is_acyclic());
 
@@ -88,7 +88,7 @@ mod tests {
             },
         ];
 
-        let query = Query { _head: head, body };
+        let query = Query { head: head, body };
         let hypergraph = Hypergraph::new(&query);
         assert!(hypergraph.is_acyclic());
         let jointree = query.construct_join_tree().unwrap();
@@ -134,7 +134,7 @@ mod tests {
             },
         ];
 
-        let query = Query { _head: head, body };
+        let query = Query { head: head, body };
         let hypergraph = Hypergraph::new(&query);
         assert!(!hypergraph.is_acyclic());
     }
