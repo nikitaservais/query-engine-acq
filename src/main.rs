@@ -4,6 +4,8 @@ use std::str::FromStr;
 
 use serde::Serialize;
 
+use crate::database::schema::{filter_beers, get_database, load_data, Database};
+
 mod database;
 mod test;
 
@@ -64,6 +66,17 @@ impl Query {
 
         Some(join_tree)
     }
+
+    fn construct_consistent_db(&self, join_tree: &JoinTree) {
+        let database = get_database();
+        for (parent, child) in &join_tree.edges {
+            if join_tree.get_children(&child).is_empty() {
+                let new_child = database.select(&child);
+            } else {
+                let children = join_tree.get_children(child);
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -81,22 +94,37 @@ impl JoinTree {
     fn add_edge(&mut self, ear: Atom, witness: Atom) {
         self.edges.insert((ear, witness));
     }
+
+    fn get_parent(&self, child: &Atom) -> Option<Atom> {
+        for (parent, child_check) in &self.edges {
+            if child == child_check {
+                return Some(parent.clone());
+            }
+        }
+        None
+    }
+
+    fn get_children(&self, parent: &Atom) -> Vec<Atom> {
+        let mut children = vec![];
+        for (parent_check, child) in &self.edges {
+            if parent == parent_check {
+                children.push(child.clone());
+            }
+        }
+        children
+    }
 }
 
 impl fmt::Display for JoinTree {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "JoinTree:\n")?;
+        let mut result = String::new();
         for (ear, witness) in &self.edges {
-            write!(f, "[")?;
-            let ear_terms: Vec<String> = ear.terms.iter().map(|term| term.0.clone()).collect();
-            write!(f, "{}", ear_terms.join(", "))?;
-            write!(f, "] -> [")?;
-            let witness_terms: Vec<String> =
-                witness.terms.iter().map(|term| term.0.clone()).collect();
-            write!(f, "{}", witness_terms.join(", "))?;
-            write!(f, "]\n")?;
+            result.push_str(&format!(
+                "{} -> {}\n",
+                ear.relation_name, witness.relation_name
+            ));
         }
-        Ok(())
+        write!(f, "{}", result)
     }
 }
 
@@ -181,11 +209,12 @@ impl Hypergraph {
 }
 
 fn main() {
+    // filter_beers();
+    // load_data();
+
     let query = get_query();
     let join_tree = query.construct_join_tree().unwrap();
-    println!("{}", join_tree);
-    // load_data();
-    // read();
+    query.construct_consistent_db(&join_tree);
 }
 
 fn get_query() -> Query {
