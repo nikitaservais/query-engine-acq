@@ -4,7 +4,8 @@ use std::str::FromStr;
 
 use serde::Serialize;
 
-use crate::database::schema::{filter_beers, get_database, load_data, Database};
+use crate::database::schema::get_database;
+use crate::database::schema::Database;
 
 mod database;
 mod test;
@@ -209,9 +210,20 @@ impl Hypergraph {
 }
 
 fn main() {
-    // filter_beers();
-    // load_data();
-
+    let database = get_database();
+    database.select(&Atom {
+        relation_name: "Beers".to_string(),
+        terms: vec![
+            Term::Variable("beer_id".to_string()),
+            Term::Variable("beer_id".to_string()),
+            Term::Variable("beer".to_string()),
+            Term::Variable("abv".to_string()),
+            Term::Variable("ibu".to_string()),
+            Term::Variable("ounces".to_string()),
+            Term::Variable("style".to_string()),
+            Term::Variable("style2".to_string()),
+        ],
+    });
     let query = get_query();
     let join_tree = query.construct_join_tree().unwrap();
     query.construct_consistent_db(&join_tree);

@@ -1,27 +1,24 @@
 use std::fs::File;
-use std::ops::Index;
 use std::sync::Arc;
 
-use crate::{Atom, Term};
 use arrow;
-use arrow::array::{BooleanArray, Int32Array, RecordBatch, StringArray};
-use arrow::compute::FilterPredicate;
+use arrow::array::{BooleanArray, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
-use arrow::util::pretty::{pretty_format_batches, pretty_format_columns};
-use arrow_csv::ReaderBuilder;
+use arrow::util::pretty::pretty_format_batches;
 
-struct Table {
+use crate::{Atom, Term};
+
+pub struct Table {
     name: String,
     data: RecordBatch,
 }
 
 impl Table {
-    fn get_column(&self, index: usize) -> &StringArray {
+    fn get_column(&self, index: &usize) -> Option<&StringArray> {
         self.data
-            .column(index)
+            .column(*index)
             .as_any()
             .downcast_ref::<StringArray>()
-            .unwrap()
     }
 }
 
@@ -33,76 +30,72 @@ pub struct Database {
     styles: Table,
 }
 
+impl Database {}
+
 impl Database {
-    pub fn select(&self, query: &Atom) {
-        let table = match query.relation_name.as_str() {
+    pub fn get_table_by_name(&self, relation_name: &str) -> &Table {
+        match relation_name {
             "Beers" => &self.beers,
             "Breweries" => &self.breweries,
             "Categories" => &self.categories,
             "Locations" => &self.locations,
             "Styles" => &self.styles,
             _ => panic!("Table not found"),
-        };
+        }
+    }
+
+    pub fn select(&self, query: &Atom) -> Table {
+        let table = self.get_table_by_name(query.relation_name.as_str());
         let mut filter = BooleanArray::from(vec![true; table.data.num_rows()]);
         for (index, term) in query.terms.iter().enumerate() {
             match term {
-                Term::Variable(_name) => {}
+                Term::Variable(name) => {
+                    let same_variables = query
+                        .terms
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, t)| {
+                            if let Term::Variable(other_name) = t {
+                                name == other_name && index < *i
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|(i, _)| i)
+                        .collect::<Vec<_>>();
+                    if same_variables.len() == 0 {
+                        continue;
+                    }
+                    filter = same_variables
+                        .iter()
+                        .map(|i| table.get_column(&i).unwrap())
+                        .map(|same_var| {
+                            arrow_ord::cmp::eq(&same_var, &table.get_column(&index).unwrap())
+                                .unwrap()
+                        })
+                        .reduce(|a, b| arrow::compute::and(&a, &b).unwrap())
+                        .unwrap();
+                }
                 Term::Constant(constant) => {
-                    let column = table.get_column(index);
+                    let column = table.get_column(&index).unwrap();
                     let constant_filter =
                         arrow_ord::cmp::eq(&column, &StringArray::new_scalar(constant)).unwrap();
                     filter = arrow::compute::and(&filter, &constant_filter).unwrap();
                 }
             };
         }
-        let batch = arrow::compute::filter_record_batch(&table.data, &filter).unwrap();
-        println!("{}", pretty_format_batches(&[batch.clone()]).unwrap());
+        let data = arrow::compute::filter_record_batch(&table.data, &filter).unwrap();
+        println!("{}", pretty_format_batches(&[data.clone()]).unwrap());
+        Table {
+            name: table.name.clone(),
+            data,
+        }
     }
-}
-
-pub fn filter_beers() {
-    let beers = load("beers.csv", beers());
-    let beer_name = beers.column_by_name("beer").unwrap();
-    let boolean_array = beer_name.as_any().downcast_ref::<StringArray>().unwrap();
-    let arr: BooleanArray = boolean_array
-        .iter()
-        .map(|x| x.unwrap().contains("Dale's Pale Ale"))
-        .collect::<Vec<_>>()
-        .into();
-    // let boolean_array = BooleanArray::from_iter(
-    //     boolean_array
-    //         .iter()
-    //         .map(|x| x.unwrap().contains("American"))
-    //         .collect(),
-    // );
-    let beer_id = beers.column_by_name("beer_id").unwrap();
-    let filtered = arrow::compute::filter(&beer_id, &arr).unwrap();
-
-    println!(
-        "{}, len {}",
-        pretty_format_columns("beer_id", &[filtered.clone()]).unwrap(),
-        filtered.len()
-    );
-    let array = Int32Array::from_iter(0..100);
-    // let predicate = gt_scalar(&array, 60).unwrap();
-    // let filtered = arrow::compute::filter(&array, &predicate).unwrap();
-
-    let expected = Int32Array::from_iter(61..100);
-    // println!("{:?}", filtered);
-    // assert_eq!(&expected, filtered.as_primitive::<Int32Type>());
-}
-
-pub fn load_data() {
-    load("beers.csv", beers());
-    load("breweries.csv", breweries());
-    load("categories.csv", categories());
-    load("locations.csv", locations());
-    load("styles.csv", styles());
 }
 
 fn load(path: &str, schema: Schema) -> RecordBatch {
     let file = File::open(format!("data/{}", path)).unwrap();
-    let mut csv_reader = ReaderBuilder::new(Arc::new(schema))
+    let mut csv_reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
         .with_header(true)
         .build(file)
         .unwrap();

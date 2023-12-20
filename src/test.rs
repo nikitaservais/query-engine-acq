@@ -13,29 +13,29 @@ mod tests {
             Atom {
                 relation_name: "Beers".to_string(),
                 terms: vec![
-                    Term("beer_id".to_string()),
-                    Term("brew_id".to_string()),
-                    Term("beer".to_string()),
-                    Term("abv".to_string()),
-                    Term("ibu".to_string()),
-                    Term("ounces".to_string()),
-                    Term("style".to_string()),
-                    Term("style2".to_string()),
+                    Term::Variable("beer_id".to_string()),
+                    Term::Variable("brew_id".to_string()),
+                    Term::Variable("beer".to_string()),
+                    Term::Variable("abv".to_string()),
+                    Term::Variable("ibu".to_string()),
+                    Term::Variable("ounces".to_string()),
+                    Term::Variable("style".to_string()),
+                    Term::Variable("style2".to_string()),
                 ],
             },
             Atom {
                 relation_name: "Styles".to_string(),
                 terms: vec![
-                    Term("style_id".to_string()),
-                    Term("cat_id".to_string()),
-                    Term("style".to_string()),
+                    Term::Variable("style_id".to_string()),
+                    Term::Variable("cat_id".to_string()),
+                    Term::Variable("style".to_string()),
                 ],
             },
             Atom {
                 relation_name: "Categories".to_string(),
                 terms: vec![
-                    Term("cat_id".to_string()),
-                    Term("‘Belgian and French Ale’".to_string()),
+                    Term::Variable("cat_id".to_string()),
+                    Term::Constant("Belgian and French Ale".to_string()),
                 ],
             },
         ];
