@@ -32,7 +32,7 @@ struct Variable(String);
 struct Constant(String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Atom {
+pub struct Atom {
     relation_name: String,
     terms: Vec<Term>,
 }
@@ -211,33 +211,43 @@ impl Hypergraph {
 
 fn main() {
     let database = get_database();
-    database.select(&Atom {
-        relation_name: "Beers".to_string(),
-        terms: vec![
-            Term::Variable("beer_id".to_string()),
-            Term::Variable("beer_id".to_string()),
-            Term::Variable("beer".to_string()),
-            Term::Variable("abv".to_string()),
-            Term::Variable("ibu".to_string()),
-            Term::Variable("ounces".to_string()),
-            Term::Variable("style".to_string()),
-            Term::Variable("style2".to_string()),
-        ],
-    });
-    let query = get_query();
-    let join_tree = query.construct_join_tree().unwrap();
-    query.construct_consistent_db(&join_tree);
+    database.semi_join(
+        &Atom {
+            relation_name: "beers".to_string(),
+            terms: vec![
+                Term::Variable("beer_id".to_string()),
+                Term::Variable("brew_id".to_string()),
+                Term::Variable("beer".to_string()),
+                Term::Variable("abv".to_string()),
+                Term::Variable("ibu".to_string()),
+                Term::Variable("ounces".to_string()),
+                Term::Variable("style".to_string()),
+                Term::Variable("style2".to_string()),
+            ],
+        },
+        &Atom {
+            relation_name: "styles".to_string(),
+            terms: vec![
+                Term::Variable("style_id".to_string()),
+                Term::Variable("cat_id".to_string()),
+                Term::Constant("American IPA".to_string()),
+            ],
+        },
+    );
+    // let query = get_query();
+    // let join_tree = query.construct_join_tree().unwrap();
+    // query.construct_consistent_db(&join_tree);
 }
 
 fn get_query() -> Query {
     let head = Atom {
-        relation_name: "Answer".to_string(),
+        relation_name: "answer".to_string(),
         terms: vec![],
     };
 
     let body = vec![
         Atom {
-            relation_name: "Beers".to_string(),
+            relation_name: "beers".to_string(),
             terms: vec![
                 Term::Variable("beer_id".to_string()),
                 Term::Variable("brew_id".to_string()),
@@ -250,7 +260,7 @@ fn get_query() -> Query {
             ],
         },
         Atom {
-            relation_name: "Styles".to_string(),
+            relation_name: "styles".to_string(),
             terms: vec![
                 Term::Variable("style_id".to_string()),
                 Term::Variable("cat_id".to_string()),
@@ -258,7 +268,7 @@ fn get_query() -> Query {
             ],
         },
         Atom {
-            relation_name: "Categories".to_string(),
+            relation_name: "categories".to_string(),
             terms: vec![
                 Term::Variable("cat_id".to_string()),
                 Term::Constant("Belgian and French Ale".to_string()),
@@ -271,7 +281,7 @@ fn get_query() -> Query {
 
 fn get_query_1() -> Query {
     let head = Atom {
-        relation_name: "Answer".to_string(),
+        relation_name: "answer".to_string(),
         terms: vec![],
     };
 
@@ -290,7 +300,7 @@ fn get_query_1() -> Query {
             ],
         },
         Atom {
-            relation_name: "Styles".to_string(),
+            relation_name: "styles".to_string(),
             terms: vec![
                 Term::Variable("u6".to_string()),
                 Term::Variable("z".to_string()),
@@ -298,14 +308,14 @@ fn get_query_1() -> Query {
             ],
         },
         Atom {
-            relation_name: "Categories".to_string(),
+            relation_name: "categories".to_string(),
             terms: vec![
                 Term::Variable("z".to_string()),
                 Term::Variable("u7".to_string()),
             ],
         },
         Atom {
-            relation_name: "Breweries".to_string(),
+            relation_name: "breweries".to_string(),
             terms: vec![
                 Term::Variable("x".to_string()),
                 Term::Variable("u12".to_string()),

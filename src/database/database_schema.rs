@@ -1,31 +1,41 @@
-use serde::Serialize;
+use arrow::datatypes::{Field, Schema};
 
-#[derive(Serialize)]
 pub struct Beers {
-    beer_id: i32,
-    brew_id: i32,
-    beer: String,
-    abv: f64,
-    ibu: String,
-    ounces: f64,
-    style: String,
-    style2: String,
+    table_name: String,
+
+    beer_id: Field,
+    brew_id: Field,
+    beer: Field,
+    abv: Field,
+    ibu: Field,
+    ounces: Field,
+    style: Field,
+    style2: Field,
+
+    schema: Schema,
 }
 
-#[derive(Serialize)]
+impl Beers {
+    fn table_name(&self) -> String {
+        "beers".to_string()
+    }
+
+    fn foreign_key(&self) -> String {
+        "brew_id".to_string()
+    }
+}
+
 pub struct Styles {
     style_id: i32,
     cat_id: i32,
     style: String,
 }
 
-#[derive(Serialize)]
 pub struct Categories {
     cat_id: i32,
     cat_name: String,
 }
 
-#[derive(Serialize)]
 pub struct Breweries {
     brew_id: i32,
     brew_name: String,
