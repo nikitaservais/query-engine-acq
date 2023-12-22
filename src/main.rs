@@ -72,7 +72,7 @@ impl Query {
         let database = get_database();
         for (parent, child) in &join_tree.edges {
             if join_tree.get_children(&child).is_empty() {
-                let new_child = database.select(&child);
+                // let new_child = database.select(&child);
             } else {
                 let children = join_tree.get_children(child);
             }
@@ -213,24 +213,18 @@ fn main() {
     let database = get_database();
     database.semi_join(
         &Atom {
-            relation_name: "beers".to_string(),
-            terms: vec![
-                Term::Variable("beer_id".to_string()),
-                Term::Variable("brew_id".to_string()),
-                Term::Variable("beer".to_string()),
-                Term::Variable("abv".to_string()),
-                Term::Variable("ibu".to_string()),
-                Term::Variable("ounces".to_string()),
-                Term::Variable("style".to_string()),
-                Term::Variable("style2".to_string()),
-            ],
-        },
-        &Atom {
             relation_name: "styles".to_string(),
             terms: vec![
                 Term::Variable("style_id".to_string()),
                 Term::Variable("cat_id".to_string()),
-                Term::Constant("American IPA".to_string()),
+                Term::Variable("style".to_string()),
+            ],
+        },
+        &Atom {
+            relation_name: "categories".to_string(),
+            terms: vec![
+                Term::Variable("cat_id".to_string()),
+                Term::Variable("cat_name".to_string()),
             ],
         },
     );

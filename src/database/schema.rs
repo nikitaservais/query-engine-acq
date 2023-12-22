@@ -1,16 +1,15 @@
 use std::collections::HashMap;
-use std::env::var;
 use std::fs::File;
-use std::ops::Index;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use arrow;
-use arrow::array::{BooleanArray, RecordBatch, StringArray};
+use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
-use arrow::util::pretty::pretty_format_batches;
+use arrow::util::pretty::{pretty_format_batches, pretty_format_columns};
 
+use crate::Atom;
 use crate::Term::{Constant, Variable};
-use crate::{Atom, Term};
 
 pub struct Table {
     name: String,
@@ -52,32 +51,70 @@ impl Database {
         let table = self.select(query, self.get_table_by_name(&query.relation_name));
         let table_2 = self.select(query_2, self.get_table_by_name(&query_2.relation_name));
         let join_table = self.join(&table, &table_2);
+
         self.select(query, &join_table)
     }
 
-    fn theta_join(&self, query: &Atom, query_2: &Atom) -> Table {
-        let table = self.select(query, self.get_table_by_name(&query.relation_name));
-        let table_2 = self.select(query_2, self.get_table_by_name(&query_2.relation_name));
-        let join = self.join(&table, &table_2);
+    fn get_match_indexes(column: &ArrayRef, column_2: &ArrayRef) -> Int32Array {
+        let refs = column
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, value)| match value {
+                None => None,
+                Some(value) => {
+                    let value = column_2
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap()
+                        .iter()
+                        .enumerate()
+                        .find(|(j, value_2)| match value_2 {
+                            Some(v) => &value == v,
+                            None => false,
+                        })
+                        .unwrap()
+                        .0;
+
+                    return Some(value);
+                }
+            })
+            .map(|i| i.unwrap())
+            .map(|i| i as i32)
+            .collect::<Vec<_>>();
+        Int32Array::from(refs)
     }
+
     fn join(&self, table: &Table, table_2: &Table) -> Table {
-        let mut filter = BooleanArray::from(vec![true; table.data.num_rows()]);
-        let schema = table.data.schema();
-        let metadata = schema.metadata();
-        for (table_name, column_name) in metadata {
-            if table_name != &table_2.name {
+        let schema = Schema::try_merge(vec![
+            table.data.schema().deref().clone(),
+            table_2.data.schema().deref().clone(),
+        ])
+        .unwrap();
+        let mut columns = Vec::from(table.data.columns());
+        for (table_name, column_name) in table.data.schema().metadata() {
+            if *table_name != table_2.name {
                 continue;
             }
-            let column = table.data.column_by_name(column_name).unwrap();
-            let column_2 = table_2.data.column_by_name(column_name).unwrap();
-            let key_filter = arrow_ord::cmp::eq(column, column_2).unwrap();
-            filter = arrow::compute::and(&filter, &key_filter).unwrap();
-            // check if terms is a constant
+            let column = table.data.column_by_name(&column_name).unwrap();
+            let column_2 = table_2.data.column_by_name(&column_name).unwrap();
+
+            let foreign_key_indexes = Database::get_match_indexes(column, column_2);
+            for c in table_2.data.schema().all_fields() {
+                if c.name() == column_name {
+                    continue;
+                }
+                let column = table_2.data.column_by_name(c.name()).unwrap();
+                let column = arrow_select::take::take(&column, &foreign_key_indexes, None).unwrap();
+                columns.push(column);
+            }
         }
-        let data = arrow::compute::filter_record_batch(&table.data, &filter).unwrap();
+        let data = RecordBatch::try_new(Arc::new(schema), columns).unwrap();
         println!("{}", pretty_format_batches(&[data.clone()]).unwrap());
         Table {
-            name: table.name.clone(),
+            name: format!("{}_{}", table.name, table_2.name),
             data,
         }
     }
@@ -103,7 +140,7 @@ impl Database {
                     if same_variables.len() == 0 {
                         continue;
                     }
-                    let var_filter = same_variables
+                    filter = same_variables
                         .iter()
                         .map(|i| table.get_column(&i).unwrap())
                         .map(|same_var| {
@@ -112,13 +149,11 @@ impl Database {
                         })
                         .reduce(|a, b| arrow::compute::and(&a, &b).unwrap())
                         .unwrap();
-                    filter = arrow::compute::and(&filter, &var_filter).unwrap();
                 }
                 Constant(constant) => {
                     let column = table.get_column(&index).unwrap();
-                    let constant_filter =
+                    filter =
                         arrow_ord::cmp::eq(&column, &StringArray::new_scalar(constant)).unwrap();
-                    filter = arrow::compute::and(&filter, &constant_filter).unwrap();
                 }
             };
         }

@@ -682,6 +682,9 @@ dependencies = [
  "arrow",
  "arrow-csv",
  "arrow-ord",
+ "arrow-row",
+ "arrow-schema",
+ "arrow-select",
  "nom",
  "serde",
 ]
