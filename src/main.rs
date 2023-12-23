@@ -5,7 +5,6 @@ use std::str::FromStr;
 use serde::Serialize;
 
 use crate::database::schema::get_database;
-use crate::database::schema::Database;
 
 mod database;
 mod test;

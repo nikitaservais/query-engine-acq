@@ -9,6 +9,8 @@ use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, Strin
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::util::pretty::pretty_format_batches;
 use arrow_row::{RowConverter, Rows, SortField};
+use arrow_select::filter::filter_record_batch;
+use nom::character::complete::tab;
 
 use crate::Term::{Constant, Variable};
 use crate::{Atom, Query, Term};
@@ -62,65 +64,57 @@ impl Database {
         }
     }
 
-    pub fn semi_join(&self, query: &Atom, query_2: &Atom) {
-        let join_table = self.join(query, query_2);
+    fn projection(&self, indices: &[usize], table: &Table) -> Table {
+        let data = table.data.project(&indices).unwrap();
+        Table {
+            name: table.name.clone(),
+            data,
+        }
     }
 
-    fn join(&self, left: &Atom, right: &Atom) {
+    pub fn semi_join(&self, query: &Atom, query_2: &Atom) -> Table {
+        let join_table = self.join(query, query_2);
+        let indices = query
+            .terms
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        let table = self.projection(&indices, &join_table);
+        println!("{}", pretty_format_batches(&[table.data.clone()]).unwrap());
+        table
+    }
+
+    fn join(&self, left: &Atom, right: &Atom) -> Table {
         let table = self.select(left, self.get_table_by_name(&left.relation_name));
         let table_2 = self.select(right, self.get_table_by_name(&right.relation_name));
-        let union = self.union(left, right);
         let cartesian_product = self.cartesian_product(&table, &table_2);
+        let union = self.union(left, right);
         let mut join_table = self.select(&union, &cartesian_product);
+        let mut indices = union
+            .terms
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+
         for (table_name, column_name) in table.data.schema().metadata() {
             if *table_name != table_2.name {
                 continue;
             }
-            join_table.data.remove_column(
+            indices.remove(
                 table.data.num_columns() + table_2.data.schema().index_of(&column_name).unwrap(),
             );
         }
-        print!(
-            "{}",
-            pretty_format_batches(&[join_table.data.clone()]).unwrap()
-        );
+        join_table = self.projection(&indices, &join_table);
+        join_table
     }
     fn union(&self, left: &Atom, right: &Atom) -> Atom {
         Atom {
             relation_name: format!("{}_{}", left.relation_name, right.relation_name),
             terms: [left.terms.clone(), right.terms.clone()].concat(),
-        }
-    }
-
-    fn old_join(&self, table: &Table, table_2: &Table) -> Table {
-        let schema = Schema::try_merge(vec![
-            table.data.schema().deref().clone(),
-            table_2.data.schema().deref().clone(),
-        ])
-        .unwrap();
-        let mut columns = Vec::from(table.data.columns());
-        for (table_name, column_name) in table.data.schema().metadata() {
-            if *table_name != table_2.name {
-                continue;
-            }
-            let column = table.data.column_by_name(&column_name).unwrap();
-            let column_2 = table_2.data.column_by_name(&column_name).unwrap();
-
-            let foreign_key_indexes = Database::get_match_indexes(column, column_2);
-            for c in table_2.data.schema().all_fields() {
-                if c.name() == column_name {
-                    continue;
-                }
-                let column = table_2.data.column_by_name(c.name()).unwrap();
-                let column = arrow_select::take::take(&column, &foreign_key_indexes, None).unwrap();
-                columns.push(column);
-            }
-        }
-        let data = RecordBatch::try_new(Arc::new(schema), columns).unwrap();
-
-        Table {
-            name: format!("{}_{}", table.name, table_2.name),
-            data,
         }
     }
 
@@ -144,41 +138,22 @@ impl Database {
             .concat(),
         );
 
-        let left_converter = RowConverter::new(
-            left.data
-                .schema()
-                .all_fields()
-                .iter()
-                .map(|f| SortField::new(f.data_type().clone()))
-                .collect(),
-        )
-        .unwrap();
-        let num = left.data.num_rows() * right.data.num_rows();
-        let mut left_rows = left_converter.empty_rows(num, 100);
-        for _ in 0..right.data.num_rows() {
-            left_converter
-                .append(&mut left_rows, &left.data.columns())
-                .unwrap();
+        let mut new_left_columns = vec![];
+        for column in left.data.columns().clone() {
+            let clone = column.clone();
+            let v = std::iter::repeat(clone.as_ref())
+                .take(right.data.num_rows())
+                .collect::<Vec<_>>();
+            new_left_columns.push(arrow_select::concat::concat(&v).unwrap());
         }
-        let new_left_columns = left_converter.convert_rows(&left_rows).unwrap();
-
-        let right_converter = RowConverter::new(
-            right
-                .data
-                .schema()
-                .all_fields()
-                .iter()
-                .map(|f| SortField::new(f.data_type().clone()))
-                .collect(),
-        )
-        .unwrap();
-        let mut right_rows = right_converter.empty_rows(num, 100);
-        for _ in 0..left.data.num_rows() {
-            right_converter
-                .append(&mut right_rows, &right.data.columns())
-                .unwrap();
+        let mut new_right_columns = vec![];
+        for column in right.data.columns().clone() {
+            let clone = column.clone();
+            let v = std::iter::repeat(clone.as_ref())
+                .take(left.data.num_rows())
+                .collect::<Vec<_>>();
+            new_right_columns.push(arrow_select::concat::concat(&v).unwrap());
         }
-        let new_right_columns = right_converter.convert_rows(&right_rows).unwrap();
         let data = RecordBatch::try_new(
             Arc::new(schema),
             [
