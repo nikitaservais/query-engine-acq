@@ -224,7 +224,7 @@ fn main() {
             relation_name: "categories".to_string(),
             terms: vec![
                 Term::Variable("cat_id".to_string()),
-                Term::Variable("cat_name".to_string()),
+                Term::Constant("Belgian and French Ale".to_string()),
             ],
         },
     );
