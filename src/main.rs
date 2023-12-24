@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::ops::Index;
 use std::str::FromStr;
 
 use serde::Serialize;
 
-use crate::database::schema::get_database;
+use crate::database::schema::{get_database, Database, Table};
 
 mod database;
 mod test;
@@ -43,9 +44,84 @@ pub struct Query {
 }
 
 impl Query {
+    fn yannakakis(&self, database: &Database) {
+        // build tree from query
+        let join_tree = self.construct_join_tree().unwrap();
+        println!("join tree:\n {}", join_tree);
+        // build consistent database
+        let consistent_database = self.construct_consistent_db(&join_tree, database);
+        let root = join_tree.get_root();
+        // let root_table = self.query(&root, &consistent_database);
+        let mut a_database = consistent_database.clone();
+        let mut nodes = join_tree.get_nodes();
+        while !nodes.is_empty() {
+            let tem = nodes.clone();
+            let s = tem
+                .iter()
+                .find(|node| {
+                    let parent_node = join_tree.get_parent(node);
+                    match parent_node {
+                        Some(parent) => !nodes.contains(&parent),
+                        None => true,
+                    }
+                })
+                .unwrap();
+            for child in join_tree.get_children(s) {
+                let a_s = a_database.semi_join(
+                    s,
+                    &child,
+                    consistent_database.get_table_by_name(&child.relation_name),
+                    a_database.get_table_by_name(&s.relation_name),
+                );
+                a_database.set_table(a_s);
+            }
+            nodes.remove(s);
+        }
+        let mut o_database = a_database.clone();
+        println!("a_database:\n {}", a_database);
+        let mut nodes = join_tree.get_nodes();
+        while !nodes.is_empty() {
+            let tem = nodes.clone();
+            let s = tem
+                .iter()
+                .find(|node| {
+                    let child_nodes = join_tree.get_children(node);
+                    child_nodes.iter().all(|child| !nodes.contains(child))
+                })
+                .unwrap();
+            if !join_tree.get_children(s).is_empty() {
+                for child in join_tree.get_children(s) {
+                    let o_s = o_database.join(
+                        s,
+                        &child,
+                        consistent_database.get_table_by_name(&child.relation_name),
+                        o_database.get_table_by_name(&s.relation_name),
+                    );
+                    o_database.set_table(o_s);
+                }
+            }
+            nodes.remove(s);
+        }
+        println!("o_database:\n {}", o_database);
+    }
+}
+
+impl Query {
+    // fn run(&self, database: &Database) {
+    //     let mut result = database.select(&self.body[0]);
+    //     for atom in &self.body[1..] {
+    //         result = result.semi_join(&atom);
+    //     }
+    // }
     pub fn is_acyclic(&self) -> bool {
         let hypergraph = Hypergraph::new(self);
         hypergraph.is_acyclic()
+    }
+
+    fn query(&self, atom: &Atom, database: &Database) -> Table {
+        let mut db = database.clone();
+        let node_table = db.get_table_by_name(&atom.relation_name);
+        db.select(atom, node_table)
     }
 
     fn construct_join_tree(&self) -> Option<JoinTree> {
@@ -67,15 +143,35 @@ impl Query {
         Some(join_tree)
     }
 
-    fn construct_consistent_db(&self, join_tree: &JoinTree) {
-        let database = get_database();
-        for (parent, child) in &join_tree.edges {
-            if join_tree.get_children(&child).is_empty() {
-                // let new_child = database.select(&child);
+    fn construct_consistent_db(&self, join_tree: &JoinTree, d: &Database) -> Database {
+        let mut consistent_database: Database = d.clone();
+        let mut nodes = join_tree.get_nodes();
+        while !nodes.is_empty() {
+            let tem = nodes.clone();
+            let s = tem
+                .iter()
+                .find(|node| {
+                    let child_nodes = join_tree.get_children(node);
+                    child_nodes.iter().all(|child| !nodes.contains(child))
+                })
+                .unwrap();
+            let q_s = self.query(s, &consistent_database);
+            if join_tree.get_children(s).is_empty() {
+                consistent_database.set_table(q_s);
             } else {
-                let children = join_tree.get_children(child);
+                for child in join_tree.get_children(s) {
+                    let Q_s = consistent_database.semi_join(
+                        s,
+                        &child,
+                        consistent_database.get_table_by_name(&s.relation_name),
+                        consistent_database.get_table_by_name(&child.relation_name),
+                    );
+                    consistent_database.set_table(Q_s);
+                }
             }
+            nodes.remove(s);
         }
+        consistent_database
     }
 }
 
@@ -89,6 +185,14 @@ impl JoinTree {
         JoinTree {
             edges: HashSet::new(),
         }
+    }
+    fn get_root(&self) -> Atom {
+        self.edges
+            .clone()
+            .into_iter()
+            .find(|(parent, _)| self.get_parent(parent).is_none())
+            .unwrap()
+            .0
     }
 
     fn add_edge(&mut self, ear: Atom, witness: Atom) {
@@ -104,11 +208,21 @@ impl JoinTree {
         None
     }
 
-    fn get_children(&self, parent: &Atom) -> Vec<Atom> {
-        let mut children = vec![];
+    fn get_nodes(&self) -> HashSet<Atom> {
+        let mut nodes = HashSet::new();
+        for (parent, child) in &self.edges {
+            nodes.insert(parent.clone());
+            nodes.insert(child.clone());
+        }
+        nodes
+    }
+
+    pub fn get_children(&self, parent: &Atom) -> HashSet<Atom> {
+        let mut children = HashSet::new();
         for (parent_check, child) in &self.edges {
             if parent == parent_check {
-                children.push(child.clone());
+                children.insert(child.clone());
+                children.extend(self.get_children(child));
             }
         }
         children
@@ -118,10 +232,10 @@ impl JoinTree {
 impl fmt::Display for JoinTree {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut result = String::new();
-        for (ear, witness) in &self.edges {
+        for (parent, child) in &self.edges {
             result.push_str(&format!(
                 "{} -> {}\n",
-                ear.relation_name, witness.relation_name
+                parent.relation_name, child.relation_name
             ));
         }
         write!(f, "{}", result)
@@ -210,26 +324,25 @@ impl Hypergraph {
 
 fn main() {
     let database = get_database();
-    database.semi_join(
-        &Atom {
-            relation_name: "styles".to_string(),
-            terms: vec![
-                Term::Variable("style_id".to_string()),
-                Term::Variable("cat_id".to_string()),
-                Term::Variable("style".to_string()),
-            ],
-        },
-        &Atom {
-            relation_name: "categories".to_string(),
-            terms: vec![
-                Term::Variable("cat_id".to_string()),
-                Term::Constant("Belgian and French Ale".to_string()),
-            ],
-        },
-    );
-    // let query = get_query();
-    // let join_tree = query.construct_join_tree().unwrap();
-    // query.construct_consistent_db(&join_tree);
+    // database.semi_join(
+    //     &Atom {
+    //         relation_name: "styles".to_string(),
+    //         terms: vec![
+    //             Term::Variable("style_id".to_string()),
+    //             Term::Variable("cat_id".to_string()),
+    //             Term::Variable("style".to_string()),
+    //         ],
+    //     },
+    //     &Atom {
+    //         relation_name: "categories".to_string(),
+    //         terms: vec![
+    //             Term::Variable("cat_id".to_string()),
+    //             Term::Constant("Belgian and French Ale".to_string()),
+    //         ],
+    //     },
+    // );
+    let query = get_query();
+    query.yannakakis(&database);
 }
 
 fn get_query() -> Query {

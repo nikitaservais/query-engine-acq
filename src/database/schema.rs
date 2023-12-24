@@ -1,47 +1,50 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::repeat;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use arrow;
 use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::util::pretty::pretty_format_batches;
-use arrow_row::{RowConverter, Rows, SortField};
-use arrow_select::filter::filter_record_batch;
-use nom::character::complete::tab;
 
+use crate::Atom;
 use crate::Term::{Constant, Variable};
-use crate::{Atom, Query, Term};
 
+#[derive(Clone)]
 pub struct Table {
     name: String,
     data: RecordBatch,
 }
 
+impl Display for Table {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:\n {}",
+            self.name,
+            pretty_format_batches(&[self.data.clone()]).unwrap()
+        )
+    }
+}
+
 impl Table {
+    // name setter
+    pub fn set_name(&mut self, name: &String) {
+        self.name = name.clone();
+    }
+    pub fn get_data(&self) -> &RecordBatch {
+        &self.data
+    }
     fn get_column(&self, index: &usize) -> Option<&StringArray> {
         self.data
             .column(*index)
             .as_any()
             .downcast_ref::<StringArray>()
     }
-
-    fn get_rows(&self) -> Rows {
-        let converter = RowConverter::new(
-            self.data
-                .schema()
-                .all_fields()
-                .iter()
-                .map(|f| SortField::new(f.data_type().clone()))
-                .collect(),
-        )
-        .unwrap();
-        converter.convert_columns(&self.data.columns()).unwrap()
-    }
 }
 
+#[derive(Clone)]
 pub struct Database {
     beers: Table,
     breweries: Table,
@@ -50,7 +53,29 @@ pub struct Database {
     styles: Table,
 }
 
-impl Database {}
+impl Display for Database {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}\n{}\n{}\n{}\n{}",
+            self.beers, self.breweries, self.categories, self.locations, self.styles
+        )
+    }
+}
+
+impl Database {
+    pub fn set_table(&mut self, table: Table) {
+        println!("table name: {}", table.name);
+        match table.name.as_str() {
+            "beers" => self.beers = table,
+            "breweries" => self.breweries = table,
+            "categories" => self.categories = table,
+            "locations" => self.locations = table,
+            "styles" => self.styles = table,
+            _ => panic!("Table not found"),
+        }
+    }
+}
 
 impl Database {
     pub fn get_table_by_name(&self, relation_name: &str) -> &Table {
@@ -72,8 +97,8 @@ impl Database {
         }
     }
 
-    pub fn semi_join(&self, query: &Atom, query_2: &Atom) -> Table {
-        let join_table = self.join(query, query_2);
+    pub fn semi_join(&self, query: &Atom, query_2: &Atom, table: &Table, table_2: &Table) -> Table {
+        let join_table = self.join(query, query_2, table, table_2);
         let indices = query
             .terms
             .clone()
@@ -81,15 +106,19 @@ impl Database {
             .enumerate()
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
-        let table = self.projection(&indices, &join_table);
-        println!("{}", pretty_format_batches(&[table.data.clone()]).unwrap());
+        let mut table = self.projection(&indices, &join_table);
+        table.set_name(&query.relation_name);
         table
     }
 
-    fn join(&self, left: &Atom, right: &Atom) -> Table {
-        let table = self.select(left, self.get_table_by_name(&left.relation_name));
-        let table_2 = self.select(right, self.get_table_by_name(&right.relation_name));
-        let cartesian_product = self.cartesian_product(&table, &table_2);
+    pub fn join(
+        &self,
+        left: &Atom,
+        right: &Atom,
+        left_table: &Table,
+        right_table: &Table,
+    ) -> Table {
+        let cartesian_product = self.cartesian_product(&left_table, &right_table);
         let union = self.union(left, right);
         let mut join_table = self.select(&union, &cartesian_product);
         let mut indices = union
@@ -100,17 +129,19 @@ impl Database {
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
 
-        for (table_name, column_name) in table.data.schema().metadata() {
-            if *table_name != table_2.name {
+        for (table_name, column_name) in left_table.data.schema().metadata() {
+            if *table_name != right_table.name {
                 continue;
             }
             indices.remove(
-                table.data.num_columns() + table_2.data.schema().index_of(&column_name).unwrap(),
+                left_table.data.num_columns()
+                    + right_table.data.schema().index_of(&column_name).unwrap(),
             );
         }
         join_table = self.projection(&indices, &join_table);
         join_table
     }
+
     fn union(&self, left: &Atom, right: &Atom) -> Atom {
         Atom {
             relation_name: format!("{}_{}", left.relation_name, right.relation_name),
@@ -137,14 +168,28 @@ impl Database {
             ]
             .concat(),
         );
+        if left.data.num_rows() == 0 || right.data.num_rows() == 0 {
+            let d = RecordBatch::new_empty(Arc::new(schema));
 
-        let mut new_left_columns = vec![];
+            return Table {
+                name: format!("{}_{}", left.name, right.name),
+                data: d,
+            };
+        }
+
+        let mut new_left_columns: Vec<ArrayRef> = vec![];
         for column in left.data.columns().clone() {
             let clone = column.clone();
             let v = std::iter::repeat(clone.as_ref())
                 .take(right.data.num_rows())
                 .collect::<Vec<_>>();
-            new_left_columns.push(arrow_select::concat::concat(&v).unwrap());
+            if v.is_empty() {
+                new_left_columns.push(clone.clone());
+                continue;
+            }
+            let new_column = arrow_select::concat::concat(&v).unwrap();
+
+            new_left_columns.push(new_column);
         }
         let mut new_right_columns = vec![];
         for column in right.data.columns().clone() {
@@ -152,7 +197,13 @@ impl Database {
             let v = std::iter::repeat(clone.as_ref())
                 .take(left.data.num_rows())
                 .collect::<Vec<_>>();
-            new_right_columns.push(arrow_select::concat::concat(&v).unwrap());
+            if v.is_empty() {
+                new_right_columns.push(clone.clone());
+                continue;
+            }
+            let new_column = arrow_select::concat::concat(&v).unwrap();
+
+            new_right_columns.push(new_column);
         }
         let data = RecordBatch::try_new(
             Arc::new(schema),
