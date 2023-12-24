@@ -7,9 +7,10 @@ use arrow;
 use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::util::pretty::pretty_format_batches;
+use arrow_schema::ArrowError;
 
-use crate::Atom;
 use crate::Term::{Constant, Variable};
+use crate::{Atom, Query, Term};
 
 #[derive(Clone)]
 pub struct Table {
@@ -21,8 +22,7 @@ impl Display for Table {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}:\n {}",
-            self.name,
+            "{}",
             pretty_format_batches(&[self.data.clone()]).unwrap()
         )
     }
@@ -53,6 +53,33 @@ pub struct Database {
     styles: Table,
 }
 
+impl Database {
+    pub(crate) fn rename(&mut self, query: &Query) {
+        for atom in query.body.iter() {
+            let table = self.get_table_by_name(&atom.relation_name);
+            let mut new_table = table.clone();
+            let mut new_field: Vec<Field> = vec![];
+            for (index, term) in atom.terms.iter().enumerate() {
+                match term {
+                    Variable(name) => {
+                        let field = table.data.schema().field(index).clone();
+                        new_field.push(field.clone().with_name(name));
+                    }
+                    Constant(_) => {
+                        new_field.push(table.data.schema().field(index).clone());
+                    }
+                }
+            }
+            let schema = Schema::new(new_field);
+            let new_columns = table.data.columns().to_vec();
+            println!("{}", table);
+
+            new_table.data = RecordBatch::try_new(Arc::new(schema), new_columns).unwrap();
+            self.set_table(&atom.relation_name, new_table);
+        }
+    }
+}
+
 impl Display for Database {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -64,14 +91,13 @@ impl Display for Database {
 }
 
 impl Database {
-    pub fn set_table(&mut self, table: Table) {
-        println!("table name: {}", table.name);
-        match table.name.as_str() {
-            "beers" => self.beers = table,
-            "breweries" => self.breweries = table,
-            "categories" => self.categories = table,
-            "locations" => self.locations = table,
-            "styles" => self.styles = table,
+    pub fn set_table(&mut self, table_name: &str, table: Table) {
+        match table_name {
+            "beers" => self.beers.data = table.data,
+            "breweries" => self.breweries.data = table.data,
+            "categories" => self.categories.data = table.data,
+            "locations" => self.locations.data = table.data,
+            "styles" => self.styles.data = table.data,
             _ => panic!("Table not found"),
         }
     }
@@ -89,7 +115,41 @@ impl Database {
         }
     }
 
-    fn projection(&self, indices: &[usize], table: &Table) -> Table {
+    pub fn project(&self, attr: &Vec<Term>, table: &Table) -> Table {
+        let mut indices = vec![];
+        for term in attr {
+            match term {
+                Variable(name) => {
+                    if let Ok(index) = table.data.schema().index_of(&name) {
+                        indices.push(index);
+                    }
+                }
+                Constant(_) => {}
+            }
+        }
+        self.projection(&indices, table)
+    }
+
+    pub fn intersection(&self, table: &Table, table_2: &Table) -> Table {
+        let column = table.get_column(&0).unwrap();
+        let column_2 = table_2.get_column(&0).unwrap();
+        let mut filter = BooleanArray::from(vec![false; column.len()]);
+        for i in 0..column_2.len() {
+            let eq = arrow::compute::kernels::cmp::eq(
+                &column,
+                &StringArray::new_scalar(column_2.value(i)),
+            )
+            .unwrap();
+            filter = arrow::compute::kernels::boolean::or(&filter, &eq).unwrap();
+        }
+        let data = arrow::compute::filter_record_batch(&table.data, &filter).unwrap();
+        Table {
+            name: table.name.clone(),
+            data,
+        }
+    }
+
+    pub fn projection(&self, indices: &[usize], table: &Table) -> Table {
         let data = table.data.project(&indices).unwrap();
         Table {
             name: table.name.clone(),
@@ -119,7 +179,7 @@ impl Database {
         right_table: &Table,
     ) -> Table {
         let cartesian_product = self.cartesian_product(&left_table, &right_table);
-        let union = self.union(left, right);
+        let union = self.merge(left, right);
         let mut join_table = self.select(&union, &cartesian_product);
         let mut indices = union
             .terms
@@ -128,6 +188,7 @@ impl Database {
             .enumerate()
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
+        let union = self.union(&left.terms, &right.terms);
 
         for (table_name, column_name) in left_table.data.schema().metadata() {
             if *table_name != right_table.name {
@@ -142,7 +203,17 @@ impl Database {
         join_table
     }
 
-    fn union(&self, left: &Atom, right: &Atom) -> Atom {
+    fn union(&self, left: &Vec<Term>, right: &Vec<Term>) -> Vec<Term> {
+        let mut result = left.clone();
+        for term in right {
+            if !result.contains(&term) {
+                result.push(term.clone());
+            }
+        }
+        result
+    }
+
+    fn merge(&self, left: &Atom, right: &Atom) -> Atom {
         Atom {
             relation_name: format!("{}_{}", left.relation_name, right.relation_name),
             terms: [left.terms.clone(), right.terms.clone()].concat(),
@@ -227,6 +298,7 @@ impl Database {
     }
 
     fn get_match_indexes(column: &ArrayRef, column_2: &ArrayRef) -> Int32Array {
+        let filter = arrow::compute::kernels::cmp::distinct(column, column_2).unwrap();
         let refs = column
             .as_any()
             .downcast_ref::<StringArray>()
@@ -279,16 +351,14 @@ impl Database {
                     if same_variables.len() == 0 {
                         continue;
                     }
-                    let var_filter = same_variables
-                        .iter()
-                        .map(|i| table.get_column(&i).unwrap())
-                        .map(|same_var| {
-                            arrow_ord::cmp::eq(&same_var, &table.get_column(&index).unwrap())
-                                .unwrap()
-                        })
-                        .reduce(|a, b| arrow::compute::and(&a, &b).unwrap())
+                    for same_var in same_variables {
+                        let var_filter = arrow_ord::cmp::eq(
+                            &table.get_column(&same_var).unwrap(),
+                            &table.get_column(&index).unwrap(),
+                        )
                         .unwrap();
-                    filter = arrow::compute::and(&filter, &var_filter).unwrap();
+                        filter = arrow::compute::and(&filter, &var_filter).unwrap();
+                    }
                 }
                 Constant(constant) => {
                     let column = table.get_column(&index).unwrap();
@@ -358,7 +428,6 @@ pub fn breweries() -> Schema {
 
 pub fn categories() -> Schema {
     let mut metadata = HashMap::new();
-    metadata.insert("styles".to_string(), "cat_id".to_string());
     Schema::new_with_metadata(
         vec![
             Field::new("cat_id", DataType::Utf8, true),
@@ -386,7 +455,6 @@ pub fn locations() -> Schema {
 pub fn styles() -> Schema {
     let mut metadata = HashMap::new();
     metadata.insert("categories".to_string(), "cat_id".to_string());
-    metadata.insert("beers".to_string(), "style".to_string());
     Schema::new_with_metadata(
         vec![
             Field::new("style_id", DataType::Utf8, true),

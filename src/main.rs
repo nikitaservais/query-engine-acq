@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::fmt::Display;
 use std::ops::Index;
 use std::str::FromStr;
 
+use arrow::array::Array;
 use serde::Serialize;
 
 use crate::database::schema::{get_database, Database, Table};
@@ -11,7 +13,7 @@ mod database;
 mod test;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum Term {
+pub enum Term {
     Variable(String),
     Constant(String),
 }
@@ -19,8 +21,8 @@ enum Term {
 impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Term::Variable(var) => write!(f, "Variable({})", var),
-            Term::Constant(name) => write!(f, "Constant({})", name),
+            Term::Variable(var) => write!(f, "{}", var),
+            Term::Constant(name) => write!(f, "{}", name),
         }
     }
 }
@@ -44,41 +46,37 @@ pub struct Query {
 }
 
 impl Query {
+    fn union(&self, left: &Vec<Term>, right: &Vec<Term>) -> Vec<Term> {
+        let mut result = left.clone();
+        for term in right {
+            if !result.contains(&term) {
+                result.push(term.clone());
+            }
+        }
+        result
+    }
+
+    fn print_query_database(&self, database: &Database) {
+        println!("query database:");
+        for atom in &self.body {
+            println!(
+                "{}:\n{}",
+                atom.relation_name,
+                database.get_table_by_name(&atom.relation_name)
+            );
+        }
+    }
+
     fn yannakakis(&self, database: &Database) {
         // build tree from query
+        let mut db = database.clone();
         let join_tree = self.construct_join_tree().unwrap();
-        println!("join tree:\n {}", join_tree);
+        println!("join tree:\n{}", join_tree);
+        db.rename(&self);
         // build consistent database
-        let consistent_database = self.construct_consistent_db(&join_tree, database);
-        let root = join_tree.get_root();
-        // let root_table = self.query(&root, &consistent_database);
-        let mut a_database = consistent_database.clone();
-        let mut nodes = join_tree.get_nodes();
-        while !nodes.is_empty() {
-            let tem = nodes.clone();
-            let s = tem
-                .iter()
-                .find(|node| {
-                    let parent_node = join_tree.get_parent(node);
-                    match parent_node {
-                        Some(parent) => !nodes.contains(&parent),
-                        None => true,
-                    }
-                })
-                .unwrap();
-            for child in join_tree.get_children(s) {
-                let a_s = a_database.semi_join(
-                    s,
-                    &child,
-                    consistent_database.get_table_by_name(&child.relation_name),
-                    a_database.get_table_by_name(&s.relation_name),
-                );
-                a_database.set_table(a_s);
-            }
-            nodes.remove(s);
-        }
-        let mut o_database = a_database.clone();
-        println!("a_database:\n {}", a_database);
+        let consistent_database = self.construct_consistent_db(&join_tree, &db);
+        self.print_query_database(&consistent_database);
+        let mut o_database = consistent_database.clone();
         let mut nodes = join_tree.get_nodes();
         while !nodes.is_empty() {
             let tem = nodes.clone();
@@ -90,19 +88,35 @@ impl Query {
                 })
                 .unwrap();
             if !join_tree.get_children(s).is_empty() {
+                let union = self.union(&s.terms, &self.head.terms);
+                println!("{:?}∪\n{:?}\n={:?}", s.terms, self.head.terms, union);
                 for child in join_tree.get_children(s) {
-                    let o_s = o_database.join(
+                    let old_O_s = o_database.get_table_by_name(&s.relation_name).clone();
+                    println!(
+                        "Join table: \n{}\n{}",
+                        o_database.get_table_by_name(&s.relation_name),
+                        o_database.get_table_by_name(&child.relation_name),
+                    );
+                    let join = o_database.join(
                         s,
                         &child,
-                        consistent_database.get_table_by_name(&child.relation_name),
                         o_database.get_table_by_name(&s.relation_name),
+                        o_database.get_table_by_name(&child.relation_name),
                     );
-                    o_database.set_table(o_s);
+                    println!(
+                        "O_{} ⋈ O_{} =\n{}",
+                        s.relation_name, child.relation_name, join
+                    );
+                    let o_s = o_database.project(&union, &join);
+                    println!("set O_{}\n{}\nto\n{}", s.relation_name, old_O_s, o_s);
+                    o_database.set_table(&s.relation_name, o_s);
                 }
             }
             nodes.remove(s);
         }
-        println!("o_database:\n {}", o_database);
+        self.print_query_database(&o_database);
+        let O_r = o_database.get_table_by_name(&join_tree.get_root().relation_name);
+        println!("O_r:\n{}", O_r);
     }
 }
 
@@ -146,6 +160,8 @@ impl Query {
     fn construct_consistent_db(&self, join_tree: &JoinTree, d: &Database) -> Database {
         let mut consistent_database: Database = d.clone();
         let mut nodes = join_tree.get_nodes();
+        let root = join_tree.get_root();
+        // preorder traversal
         while !nodes.is_empty() {
             let tem = nodes.clone();
             let s = tem
@@ -157,21 +173,91 @@ impl Query {
                 .unwrap();
             let q_s = self.query(s, &consistent_database);
             if join_tree.get_children(s).is_empty() {
-                consistent_database.set_table(q_s);
+                println!("Q_{} =: q_{}", s.relation_name, s.relation_name);
+                println!(
+                    "set Q_{}\n to\n{}",
+                    consistent_database.get_table_by_name(&s.relation_name),
+                    &q_s
+                );
+                consistent_database.set_table(&s.relation_name, q_s);
             } else {
+                let old_Q_s = consistent_database
+                    .get_table_by_name(&s.relation_name)
+                    .clone();
+                println!(
+                    "Q_{} =: {}",
+                    s.relation_name,
+                    join_tree
+                        .get_children(s)
+                        .iter()
+                        .map(|child| format!(
+                            "(q_{} ⋉ Q_{})",
+                            s.relation_name,
+                            child.relation_name.clone()
+                        ))
+                        .collect::<Vec<String>>()
+                        .join(" ∩ ")
+                );
+                // let mut
+                let mut Q_s = q_s.clone();
                 for child in join_tree.get_children(s) {
-                    let Q_s = consistent_database.semi_join(
+                    let semi_join = consistent_database.semi_join(
                         s,
                         &child,
-                        consistent_database.get_table_by_name(&s.relation_name),
+                        &q_s,
                         consistent_database.get_table_by_name(&child.relation_name),
                     );
-                    consistent_database.set_table(Q_s);
+                    println!(
+                        "q_{} ⋉ Q_{} =\n{}",
+                        s.relation_name, child.relation_name, semi_join
+                    );
+                    Q_s = consistent_database.intersection(&Q_s, &semi_join);
+                    // println!("∩ {}\n{}", Q_s, semi_join)
                 }
+
+                println!("set Q_{}\n{} to\n{}", s.relation_name, old_Q_s, Q_s);
+                consistent_database.set_table(&s.relation_name, Q_s);
             }
             nodes.remove(s);
         }
-        consistent_database
+        let mut a_database = consistent_database.clone();
+        let mut nodes = join_tree.get_nodes();
+        let a_r = self.query(&root, &consistent_database);
+        a_database.set_table(&root.relation_name, a_r);
+        // postorder traversal
+        while !nodes.is_empty() {
+            let tem = nodes.clone();
+            let s = tem
+                .iter()
+                .find(|node| {
+                    let parent_node = join_tree.get_parent(node);
+                    match parent_node {
+                        Some(parent) => !nodes.contains(&parent),
+                        None => true,
+                    }
+                })
+                .unwrap();
+            for child in join_tree.get_children(s) {
+                let old_A_child = a_database.get_table_by_name(&child.relation_name).clone();
+                println!(
+                    "A_{} =: Q_{} ⋉ A_{}",
+                    child.relation_name, child.relation_name, s.relation_name
+                );
+                let a_child = a_database.semi_join(
+                    &child,
+                    s,
+                    consistent_database.get_table_by_name(&child.relation_name),
+                    a_database.get_table_by_name(&s.relation_name),
+                );
+                println!(
+                    "set A_{}\n{}\nto\n{}",
+                    child.relation_name, old_A_child, a_child
+                );
+                a_database.set_table(&child.relation_name, a_child);
+            }
+            nodes.remove(s);
+        }
+        a_database
     }
 }
 
@@ -324,65 +410,8 @@ impl Hypergraph {
 
 fn main() {
     let database = get_database();
-    // database.semi_join(
-    //     &Atom {
-    //         relation_name: "styles".to_string(),
-    //         terms: vec![
-    //             Term::Variable("style_id".to_string()),
-    //             Term::Variable("cat_id".to_string()),
-    //             Term::Variable("style".to_string()),
-    //         ],
-    //     },
-    //     &Atom {
-    //         relation_name: "categories".to_string(),
-    //         terms: vec![
-    //             Term::Variable("cat_id".to_string()),
-    //             Term::Constant("Belgian and French Ale".to_string()),
-    //         ],
-    //     },
-    // );
-    let query = get_query();
+    let query = get_query_2();
     query.yannakakis(&database);
-}
-
-fn get_query() -> Query {
-    let head = Atom {
-        relation_name: "answer".to_string(),
-        terms: vec![],
-    };
-
-    let body = vec![
-        Atom {
-            relation_name: "beers".to_string(),
-            terms: vec![
-                Term::Variable("beer_id".to_string()),
-                Term::Variable("brew_id".to_string()),
-                Term::Variable("beer".to_string()),
-                Term::Variable("abv".to_string()),
-                Term::Variable("ibu".to_string()),
-                Term::Variable("ounces".to_string()),
-                Term::Variable("style".to_string()),
-                Term::Variable("style2".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "styles".to_string(),
-            terms: vec![
-                Term::Variable("style_id".to_string()),
-                Term::Variable("cat_id".to_string()),
-                Term::Variable("style".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "categories".to_string(),
-            terms: vec![
-                Term::Variable("cat_id".to_string()),
-                Term::Constant("Belgian and French Ale".to_string()),
-            ],
-        },
-    ];
-
-    Query { head: head, body }
 }
 
 fn get_query_1() -> Query {
@@ -393,7 +422,7 @@ fn get_query_1() -> Query {
 
     let body = vec![
         Atom {
-            relation_name: "Beers".to_string(),
+            relation_name: "beers".to_string(),
             terms: vec![
                 Term::Variable("u1".to_string()),
                 Term::Variable("x".to_string()),
@@ -439,4 +468,153 @@ fn get_query_1() -> Query {
     ];
 
     Query { head, body }
+}
+
+fn get_query_2() -> Query {
+    let head = Atom {
+        relation_name: "Answer".to_string(),
+        terms: vec![
+            Term::Variable("x".to_string()),
+            Term::Variable("y".to_string()),
+            Term::Variable("z".to_string()),
+        ],
+    };
+
+    let body = vec![
+        Atom {
+            relation_name: "breweries".to_string(),
+            terms: vec![
+                Term::Variable("w".to_string()),
+                Term::Variable("x".to_string()),
+                Term::Constant("Westmalle".to_string()),
+                Term::Variable("u1".to_string()),
+                Term::Variable("u2".to_string()),
+                Term::Variable("u3".to_string()),
+                Term::Variable("u4".to_string()),
+                Term::Variable("u5".to_string()),
+                Term::Variable("u6".to_string()),
+                Term::Variable("u7".to_string()),
+                Term::Variable("u8".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "locations".to_string(),
+            terms: vec![
+                Term::Variable("u9".to_string()),
+                Term::Variable("w".to_string()),
+                Term::Variable("y".to_string()),
+                Term::Variable("z".to_string()),
+                Term::Variable("u10".to_string()),
+            ],
+        },
+    ];
+
+    Query { head, body }
+}
+fn get_query() -> Query {
+    let head = Atom {
+        relation_name: "answer".to_string(),
+        terms: vec![Term::Variable("beer_id".to_string())],
+    };
+
+    let body = vec![
+        Atom {
+            relation_name: "beers".to_string(),
+            terms: vec![
+                Term::Variable("beer_id".to_string()),
+                Term::Variable("brew_id".to_string()),
+                Term::Variable("beer".to_string()),
+                Term::Variable("abv".to_string()),
+                Term::Variable("ibu".to_string()),
+                Term::Variable("ounces".to_string()),
+                Term::Variable("style".to_string()),
+                Term::Variable("style2".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "styles".to_string(),
+            terms: vec![
+                Term::Variable("style_id".to_string()),
+                Term::Variable("cat_id".to_string()),
+                Term::Variable("style".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "categories".to_string(),
+            terms: vec![
+                Term::Variable("cat_id".to_string()),
+                Term::Variable("cat_name".to_string()),
+            ],
+        },
+    ];
+
+    Query { head: head, body }
+}
+
+fn parse_query(line: &str) -> Query {
+    let parts: Vec<&str> = line.split(":-").collect();
+    let head_str = parts[0].trim();
+    let body_str = parts[1].trim();
+
+    let head_parts: Vec<&str> = head_str.split("(").collect();
+    let head_name = head_parts[0].trim().to_string();
+    let head_terms_str = &head_parts[1][..head_parts[1].len() - 1]; // remove the closing parenthesis
+    let head_terms: Vec<Term> = head_terms_str
+        .split(", ")
+        .map(|s| {
+            if s.starts_with('\'') && s.ends_with('\'') {
+                Term::Constant(s[1..s.len() - 1].to_string())
+            } else {
+                Term::Variable(s.to_string())
+            }
+        })
+        .collect();
+
+    let head = Atom {
+        relation_name: head_name,
+        terms: head_terms,
+    };
+
+    let body_atoms_str: Vec<&str> = body_str.split("(").collect();
+    let mut body = Vec::new();
+    for atom_str in body_atoms_str {
+        let atom_parts: Vec<&str> = atom_str.split("(").collect();
+        let atom_name = atom_parts[0].trim().to_string();
+        let atom_terms_str = &atom_parts[1][..atom_parts[1].len() - 1]; // remove the closing parenthesis
+        let atom_terms: Vec<Term> = atom_terms_str
+            .split(", ")
+            .map(|s| {
+                if s.starts_with('\'') && s.ends_with('\'') {
+                    Term::Constant(s[1..s.len() - 1].to_string())
+                } else {
+                    Term::Variable(s.to_string())
+                }
+            })
+            .collect();
+
+        let atom = Atom {
+            relation_name: atom_name,
+            terms: atom_terms,
+        };
+        body.push(atom);
+    }
+
+    Query {
+        head: head,
+        body: body,
+    }
+}
+
+fn parse_queries() -> Vec<Query> {
+    let mut queries = Vec::new();
+    // read queries from file input.txt
+    let input = std::fs::read_to_string("input.txt").unwrap();
+    let lines = input.lines();
+
+    for line in lines {
+        let query = parse_query(line);
+        queries.push(query);
+    }
+
+    queries
 }
