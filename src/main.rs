@@ -5,11 +5,25 @@ use std::ops::Index;
 use std::str::FromStr;
 
 use arrow::array::Array;
+use nom::bytes::complete::{is_not, take_till};
+use nom::character::complete::char;
+use nom::character::is_alphabetic;
+use nom::{
+    branch::alt,
+    bytes::complete::{tag, take_while},
+    character::complete::multispace0,
+    combinator::map,
+    multi::separated_list0,
+    sequence::{delimited, preceded, tuple},
+    IResult,
+};
 use serde::Serialize;
 
 use crate::database::schema::{get_database, Database, Table};
+use crate::parser::parse_queries;
 
 mod database;
+mod parser;
 mod test;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -116,7 +130,9 @@ impl Query {
         }
         self.print_query_database(&o_database);
         let O_r = o_database.get_table_by_name(&join_tree.get_root().relation_name);
-        println!("O_r:\n{}", O_r);
+        let answer = o_database.project(&self.head.terms, &O_r);
+
+        println!("O_r:\n{}", answer);
     }
 }
 
@@ -158,7 +174,7 @@ impl Query {
     }
 
     fn construct_consistent_db(&self, join_tree: &JoinTree, d: &Database) -> Database {
-        let mut consistent_database: Database = d.clone();
+        let mut Q: Database = d.clone();
         let mut nodes = join_tree.get_nodes();
         let root = join_tree.get_root();
         // preorder traversal
@@ -171,19 +187,13 @@ impl Query {
                     child_nodes.iter().all(|child| !nodes.contains(child))
                 })
                 .unwrap();
-            let q_s = self.query(s, &consistent_database);
+            let q_s = self.query(s, &Q);
             if join_tree.get_children(s).is_empty() {
                 println!("Q_{} =: q_{}", s.relation_name, s.relation_name);
-                println!(
-                    "set Q_{}\n to\n{}",
-                    consistent_database.get_table_by_name(&s.relation_name),
-                    &q_s
-                );
-                consistent_database.set_table(&s.relation_name, q_s);
+                println!("set Q_{}\n to\n{}", s.relation_name, &q_s);
+                Q.set_table(&s.relation_name, q_s);
             } else {
-                let old_Q_s = consistent_database
-                    .get_table_by_name(&s.relation_name)
-                    .clone();
+                let old_Q_s = Q.get_table_by_name(&s.relation_name).clone();
                 println!(
                     "Q_{} =: {}",
                     s.relation_name,
@@ -201,28 +211,24 @@ impl Query {
                 // let mut
                 let mut Q_s = q_s.clone();
                 for child in join_tree.get_children(s) {
-                    let semi_join = consistent_database.semi_join(
-                        s,
-                        &child,
-                        &q_s,
-                        consistent_database.get_table_by_name(&child.relation_name),
-                    );
+                    let semi_join =
+                        Q.semi_join(s, &child, &q_s, Q.get_table_by_name(&child.relation_name));
                     println!(
                         "q_{} ⋉ Q_{} =\n{}",
                         s.relation_name, child.relation_name, semi_join
                     );
-                    Q_s = consistent_database.intersection(&Q_s, &semi_join);
+                    Q_s = Q.intersection(&Q_s, &semi_join);
                     // println!("∩ {}\n{}", Q_s, semi_join)
                 }
 
-                println!("set Q_{}\n{} to\n{}", s.relation_name, old_Q_s, Q_s);
-                consistent_database.set_table(&s.relation_name, Q_s);
+                println!("set Q_{}\n{}\nto\n{}", s.relation_name, old_Q_s, Q_s);
+                Q.set_table(&s.relation_name, Q_s);
             }
             nodes.remove(s);
         }
-        let mut a_database = consistent_database.clone();
+        let mut a_database = Q.clone();
         let mut nodes = join_tree.get_nodes();
-        let a_r = self.query(&root, &consistent_database);
+        let a_r = self.query(&root, &Q);
         a_database.set_table(&root.relation_name, a_r);
         // postorder traversal
         while !nodes.is_empty() {
@@ -246,7 +252,7 @@ impl Query {
                 let a_child = a_database.semi_join(
                     &child,
                     s,
-                    consistent_database.get_table_by_name(&child.relation_name),
+                    Q.get_table_by_name(&child.relation_name),
                     a_database.get_table_by_name(&s.relation_name),
                 );
                 println!(
@@ -409,212 +415,8 @@ impl Hypergraph {
 }
 
 fn main() {
+    let queries = parse_queries();
     let database = get_database();
     let query = get_query_2();
     query.yannakakis(&database);
-}
-
-fn get_query_1() -> Query {
-    let head = Atom {
-        relation_name: "answer".to_string(),
-        terms: vec![],
-    };
-
-    let body = vec![
-        Atom {
-            relation_name: "beers".to_string(),
-            terms: vec![
-                Term::Variable("u1".to_string()),
-                Term::Variable("x".to_string()),
-                Term::Variable("u2".to_string()),
-                Term::Constant("0.07".to_string()),
-                Term::Variable("u3".to_string()),
-                Term::Variable("u4".to_string()),
-                Term::Variable("y".to_string()),
-                Term::Variable("u5".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "styles".to_string(),
-            terms: vec![
-                Term::Variable("u6".to_string()),
-                Term::Variable("z".to_string()),
-                Term::Variable("y".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "categories".to_string(),
-            terms: vec![
-                Term::Variable("z".to_string()),
-                Term::Variable("u7".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "breweries".to_string(),
-            terms: vec![
-                Term::Variable("x".to_string()),
-                Term::Variable("u12".to_string()),
-                Term::Variable("u13".to_string()),
-                Term::Variable("u14".to_string()),
-                Term::Variable("u15".to_string()),
-                Term::Variable("u16".to_string()),
-                Term::Variable("u17".to_string()),
-                Term::Variable("u18".to_string()),
-                Term::Variable("u13".to_string()),
-                Term::Variable("u14".to_string()),
-                Term::Variable("u15".to_string()),
-            ],
-        },
-    ];
-
-    Query { head, body }
-}
-
-fn get_query_2() -> Query {
-    let head = Atom {
-        relation_name: "Answer".to_string(),
-        terms: vec![
-            Term::Variable("x".to_string()),
-            Term::Variable("y".to_string()),
-            Term::Variable("z".to_string()),
-        ],
-    };
-
-    let body = vec![
-        Atom {
-            relation_name: "breweries".to_string(),
-            terms: vec![
-                Term::Variable("w".to_string()),
-                Term::Variable("x".to_string()),
-                Term::Constant("Westmalle".to_string()),
-                Term::Variable("u1".to_string()),
-                Term::Variable("u2".to_string()),
-                Term::Variable("u3".to_string()),
-                Term::Variable("u4".to_string()),
-                Term::Variable("u5".to_string()),
-                Term::Variable("u6".to_string()),
-                Term::Variable("u7".to_string()),
-                Term::Variable("u8".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "locations".to_string(),
-            terms: vec![
-                Term::Variable("u9".to_string()),
-                Term::Variable("w".to_string()),
-                Term::Variable("y".to_string()),
-                Term::Variable("z".to_string()),
-                Term::Variable("u10".to_string()),
-            ],
-        },
-    ];
-
-    Query { head, body }
-}
-fn get_query() -> Query {
-    let head = Atom {
-        relation_name: "answer".to_string(),
-        terms: vec![Term::Variable("beer_id".to_string())],
-    };
-
-    let body = vec![
-        Atom {
-            relation_name: "beers".to_string(),
-            terms: vec![
-                Term::Variable("beer_id".to_string()),
-                Term::Variable("brew_id".to_string()),
-                Term::Variable("beer".to_string()),
-                Term::Variable("abv".to_string()),
-                Term::Variable("ibu".to_string()),
-                Term::Variable("ounces".to_string()),
-                Term::Variable("style".to_string()),
-                Term::Variable("style2".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "styles".to_string(),
-            terms: vec![
-                Term::Variable("style_id".to_string()),
-                Term::Variable("cat_id".to_string()),
-                Term::Variable("style".to_string()),
-            ],
-        },
-        Atom {
-            relation_name: "categories".to_string(),
-            terms: vec![
-                Term::Variable("cat_id".to_string()),
-                Term::Variable("cat_name".to_string()),
-            ],
-        },
-    ];
-
-    Query { head: head, body }
-}
-
-fn parse_query(line: &str) -> Query {
-    let parts: Vec<&str> = line.split(":-").collect();
-    let head_str = parts[0].trim();
-    let body_str = parts[1].trim();
-
-    let head_parts: Vec<&str> = head_str.split("(").collect();
-    let head_name = head_parts[0].trim().to_string();
-    let head_terms_str = &head_parts[1][..head_parts[1].len() - 1]; // remove the closing parenthesis
-    let head_terms: Vec<Term> = head_terms_str
-        .split(", ")
-        .map(|s| {
-            if s.starts_with('\'') && s.ends_with('\'') {
-                Term::Constant(s[1..s.len() - 1].to_string())
-            } else {
-                Term::Variable(s.to_string())
-            }
-        })
-        .collect();
-
-    let head = Atom {
-        relation_name: head_name,
-        terms: head_terms,
-    };
-
-    let body_atoms_str: Vec<&str> = body_str.split("(").collect();
-    let mut body = Vec::new();
-    for atom_str in body_atoms_str {
-        let atom_parts: Vec<&str> = atom_str.split("(").collect();
-        let atom_name = atom_parts[0].trim().to_string();
-        let atom_terms_str = &atom_parts[1][..atom_parts[1].len() - 1]; // remove the closing parenthesis
-        let atom_terms: Vec<Term> = atom_terms_str
-            .split(", ")
-            .map(|s| {
-                if s.starts_with('\'') && s.ends_with('\'') {
-                    Term::Constant(s[1..s.len() - 1].to_string())
-                } else {
-                    Term::Variable(s.to_string())
-                }
-            })
-            .collect();
-
-        let atom = Atom {
-            relation_name: atom_name,
-            terms: atom_terms,
-        };
-        body.push(atom);
-    }
-
-    Query {
-        head: head,
-        body: body,
-    }
-}
-
-fn parse_queries() -> Vec<Query> {
-    let mut queries = Vec::new();
-    // read queries from file input.txt
-    let input = std::fs::read_to_string("input.txt").unwrap();
-    let lines = input.lines();
-
-    for line in lines {
-        let query = parse_query(line);
-        queries.push(query);
-    }
-
-    queries
 }

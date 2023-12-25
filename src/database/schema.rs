@@ -7,7 +7,6 @@ use arrow;
 use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::util::pretty::pretty_format_batches;
-use arrow_schema::ArrowError;
 
 use crate::Term::{Constant, Variable};
 use crate::{Atom, Query, Term};
@@ -72,8 +71,6 @@ impl Database {
             }
             let schema = Schema::new(new_field);
             let new_columns = table.data.columns().to_vec();
-            println!("{}", table);
-
             new_table.data = RecordBatch::try_new(Arc::new(schema), new_columns).unwrap();
             self.set_table(&atom.relation_name, new_table);
         }
@@ -378,8 +375,11 @@ impl Database {
 
 fn load(path: &str, schema: Schema) -> RecordBatch {
     let file = File::open(format!("data/{}", path)).unwrap();
+    // get the file size
+    let file_size = file.metadata().unwrap().len();
     let mut csv_reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
         .with_header(true)
+        .with_batch_size(file_size as usize)
         .build(file)
         .unwrap();
 
