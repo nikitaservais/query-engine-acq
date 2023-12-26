@@ -23,82 +23,57 @@ fn load(path: &str, schema: Schema) -> RecordBatch {
 }
 
 pub fn beers() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("breweries".to_string(), "brew_id".to_string());
-    metadata.insert("styles".to_string(), "style".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("beer_id", DataType::Utf8, true),
-            Field::new("brew_id", DataType::Utf8, true),
-            Field::new("beer", DataType::Utf8, true),
-            Field::new("abv", DataType::Utf8, true),
-            Field::new("ibu", DataType::Utf8, true),
-            Field::new("ounces", DataType::Utf8, true),
-            Field::new("style", DataType::Utf8, true),
-            Field::new("style2", DataType::Utf8, true),
-        ],
-        metadata,
-    )
+    Schema::new(vec![
+        Field::new("beer_id", DataType::Utf8, true),
+        Field::new("brew_id", DataType::Utf8, true),
+        Field::new("beer", DataType::Utf8, true),
+        Field::new("abv", DataType::Utf8, true),
+        Field::new("ibu", DataType::Utf8, true),
+        Field::new("ounces", DataType::Utf8, true),
+        Field::new("style", DataType::Utf8, true),
+        Field::new("style2", DataType::Utf8, true),
+    ])
 }
 
 pub fn breweries() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("locations".to_string(), "brew_id".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("brew_id", DataType::Utf8, true),
-            Field::new("brew_name", DataType::Utf8, true),
-            Field::new("address1", DataType::Utf8, true),
-            Field::new("address2", DataType::Utf8, true),
-            Field::new("city", DataType::Utf8, true),
-            Field::new("state", DataType::Utf8, true),
-            Field::new("code", DataType::Utf8, true),
-            Field::new("country", DataType::Utf8, true),
-            Field::new("phone", DataType::Utf8, true),
-            Field::new("website", DataType::Utf8, true),
-            Field::new("description", DataType::Utf8, true),
-        ],
-        metadata,
-    )
+    Schema::new(vec![
+        Field::new("brew_id", DataType::Utf8, true),
+        Field::new("brew_name", DataType::Utf8, true),
+        Field::new("address1", DataType::Utf8, true),
+        Field::new("address2", DataType::Utf8, true),
+        Field::new("city", DataType::Utf8, true),
+        Field::new("state", DataType::Utf8, true),
+        Field::new("code", DataType::Utf8, true),
+        Field::new("country", DataType::Utf8, true),
+        Field::new("phone", DataType::Utf8, true),
+        Field::new("website", DataType::Utf8, true),
+        Field::new("description", DataType::Utf8, true),
+    ])
 }
 
 pub fn categories() -> Schema {
-    let mut metadata = HashMap::new();
-    Schema::new_with_metadata(
-        vec![
-            Field::new("cat_id", DataType::Utf8, true),
-            Field::new("cat_name", DataType::Utf8, true),
-        ],
-        metadata,
-    )
+    Schema::new(vec![
+        Field::new("cat_id", DataType::Utf8, true),
+        Field::new("cat_name", DataType::Utf8, true),
+    ])
 }
 
 pub fn locations() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("breweries".to_string(), "brew_id".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("loc_id", DataType::Utf8, true),
-            Field::new("brew_id", DataType::Utf8, true),
-            Field::new("latitude", DataType::Utf8, true),
-            Field::new("longitude", DataType::Utf8, true),
-            Field::new("accuracy", DataType::Utf8, true),
-        ],
-        metadata,
-    )
+    Schema::new(vec![
+        Field::new("loc_id", DataType::Utf8, true),
+        Field::new("brew_id", DataType::Utf8, true),
+        Field::new("latitude", DataType::Utf8, true),
+        Field::new("longitude", DataType::Utf8, true),
+        Field::new("accuracy", DataType::Utf8, true),
+    ])
 }
 
 pub fn styles() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("categories".to_string(), "cat_id".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("style_id", DataType::Utf8, true),
-            Field::new("cat_id", DataType::Utf8, true),
-            Field::new("style", DataType::Utf8, true),
-        ],
-        metadata,
-    )
+    Schema::new(vec![
+        Field::new("style_id", DataType::Utf8, true),
+        Field::new("cat_id", DataType::Utf8, true),
+        Field::new("style", DataType::Utf8, true),
+    ])
 }
 
 pub fn get_database() -> Database {

@@ -134,25 +134,8 @@ impl Database {
         let cartesian_product = self.cartesian_product(&left_table, &right_table);
         let union = self.merge(left, right);
         let mut join_table = self.select(&union, &cartesian_product);
-        let mut indices = union
-            .terms
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(i, _)| i)
-            .collect::<Vec<_>>();
         let union = self.union(&left.terms, &right.terms);
-
-        for (table_name, column_name) in left_table.data.schema().metadata() {
-            if *table_name != right_table.name {
-                continue;
-            }
-            indices.remove(
-                left_table.data.num_columns()
-                    + right_table.data.schema().index_of(&column_name).unwrap(),
-            );
-        }
-        join_table = self.projection(&indices, &join_table);
+        join_table = self.project(&union, &join_table);
         join_table
     }
 
