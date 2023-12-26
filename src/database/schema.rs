@@ -41,6 +41,10 @@ impl Table {
             .as_any()
             .downcast_ref::<StringArray>()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.num_rows() == 0
+    }
 }
 
 #[derive(Clone)]
@@ -114,14 +118,16 @@ impl Database {
 
     pub fn project(&self, attr: &Vec<Term>, table: &Table) -> Table {
         let mut indices = vec![];
-        for term in attr {
+        for (index, term) in attr.iter().enumerate() {
             match term {
                 Variable(name) => {
                     if let Ok(index) = table.data.schema().index_of(&name) {
                         indices.push(index);
                     }
                 }
-                Constant(_) => {}
+                Constant(_) => {
+                    indices.push(index);
+                }
             }
         }
         self.projection(&indices, table)
@@ -156,14 +162,7 @@ impl Database {
 
     pub fn semi_join(&self, query: &Atom, query_2: &Atom, table: &Table, table_2: &Table) -> Table {
         let join_table = self.join(query, query_2, table, table_2);
-        let indices = query
-            .terms
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(i, _)| i)
-            .collect::<Vec<_>>();
-        let mut table = self.projection(&indices, &join_table);
+        let mut table = self.project(&query.terms, &join_table);
         table.set_name(&query.relation_name);
         table
     }

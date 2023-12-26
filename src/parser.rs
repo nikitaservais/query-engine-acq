@@ -1,13 +1,14 @@
 use crate::{Atom, Query, Term};
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while};
+use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::combinator::map;
 use nom::multi::separated_list0;
-use nom::sequence::{delimited, tuple};
+use nom::sequence::{delimited, preceded, tuple};
+use nom::Err::Error;
 use nom::IResult;
 
 fn parse_variable(input: &str) -> IResult<&str, Term> {
-    map(take_while(|c: char| c.is_alphanumeric()), |s: &str| {
+    map(take_while1(|c: char| c.is_alphanumeric()), |s: &str| {
         Term::Variable(s.to_string())
     })(input)
 }
@@ -23,14 +24,18 @@ fn parse_term(input: &str) -> IResult<&str, Term> {
     alt((parse_constant, parse_variable))(input)
 }
 
+fn parse_terms(input: &str) -> IResult<&str, Vec<Term>> {
+    separated_list0(tag(","), parse_term)(input)
+}
+
 fn parse_atom(input: &str) -> IResult<&str, Atom> {
     map(
         tuple((
             take_while(|c: char| c.is_alphanumeric()),
-            delimited(tag("("), separated_list0(tag(","), parse_term), tag(")")),
+            delimited(tag("("), parse_terms, tag(")")),
         )),
         |(relation_name, terms)| Atom {
-            relation_name: relation_name.to_string(),
+            relation_name: relation_name.to_string().to_lowercase(),
             terms,
         },
     )(input)
@@ -40,11 +45,11 @@ fn parse_head(input: &str) -> IResult<&str, Atom> {
     map(
         tuple((
             tag("Answer"),
-            delimited(tag("("), separated_list0(tag(","), parse_term), tag(")")),
+            delimited(tag("("), parse_terms, tag(")")),
             tag(":-"),
         )),
         |(name, terms, _)| Atom {
-            relation_name: name.to_string(),
+            relation_name: name.to_string().to_lowercase(),
             terms,
         },
     )(input)
@@ -72,18 +77,17 @@ pub fn parse_queries() -> Vec<Query> {
 
     for line in lines {
         // let t = parse_body("Beers(u1,x,u2,'0.07',u3,u4,y,u5),Beers(u1,x,u2,'0.07',u3,u4,y,u5).");
-        let input = line.replace(" ", "");
-        let query = parse_query(input.as_str());
+        let query = parse_query(line);
         match query {
             Ok((_, query)) => queries.push(query),
-            Err(_) => println!("Error parsing query: {}", input),
+            Err(_) => println!("Error parsing query: {}", line),
         }
     }
 
     queries
 }
 
-fn get_query_1() -> Query {
+pub fn get_query_1() -> Query {
     let head = Atom {
         relation_name: "answer".to_string(),
         terms: vec![],
@@ -116,6 +120,16 @@ fn get_query_1() -> Query {
             terms: vec![
                 Term::Variable("z".to_string()),
                 Term::Variable("u7".to_string()),
+            ],
+        },
+        Atom {
+            relation_name: "locations".to_string(),
+            terms: vec![
+                Term::Variable("u8".to_string()),
+                Term::Variable("x".to_string()),
+                Term::Variable("u9".to_string()),
+                Term::Variable("u10".to_string()),
+                Term::Variable("u11".to_string()),
             ],
         },
         Atom {
@@ -181,10 +195,10 @@ pub fn get_query_2() -> Query {
     Query { head, body }
 }
 
-fn get_query() -> Query {
+pub fn get_query() -> Query {
     let head = Atom {
         relation_name: "answer".to_string(),
-        terms: vec![Term::Variable("beer_id".to_string())],
+        terms: vec![],
     };
 
     let body = vec![
@@ -213,7 +227,7 @@ fn get_query() -> Query {
             relation_name: "categories".to_string(),
             terms: vec![
                 Term::Variable("cat_id".to_string()),
-                Term::Variable("cat_name".to_string()),
+                Term::Constant("Belgian and French Ale".to_string()),
             ],
         },
     ];

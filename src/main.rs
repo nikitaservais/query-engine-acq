@@ -5,18 +5,6 @@ use std::ops::Index;
 use std::str::FromStr;
 
 use arrow::array::Array;
-use nom::bytes::complete::{is_not, take_till};
-use nom::character::complete::char;
-use nom::character::is_alphabetic;
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_while},
-    character::complete::multispace0,
-    combinator::map,
-    multi::separated_list0,
-    sequence::{delimited, preceded, tuple},
-    IResult,
-};
 use serde::Serialize;
 
 use crate::database::schema::{get_database, Database, Table};
@@ -81,14 +69,22 @@ impl Query {
         }
     }
 
-    fn yannakakis(&self, database: &Database) {
-        // build tree from query
-        let mut db = database.clone();
-        let join_tree = self.construct_join_tree().unwrap();
+    fn yannakakis(&self, mut database: Database) {
+        database.rename(&self);
+        let Some(join_tree) = self.construct_join_tree() else {
+            println!("Not acyclic");
+            return;
+        };
         println!("join tree:\n{}", join_tree);
-        db.rename(&self);
-        // build consistent database
-        let consistent_database = self.construct_consistent_db(&join_tree, &db);
+        if self.is_boolean() {
+            print!("Boolean query:");
+            self.yannakakis_boolean(&join_tree, &database);
+            return;
+        }
+        let Some(consistent_database) = self.construct_consistent_db(&join_tree, &database) else {
+            println!("Not consistent, no answer");
+            return;
+        };
         self.print_query_database(&consistent_database);
         let mut o_database = consistent_database.clone();
         let mut nodes = join_tree.get_nodes();
@@ -134,49 +130,22 @@ impl Query {
 
         println!("O_r:\n{}", answer);
     }
-}
-
-impl Query {
-    // fn run(&self, database: &Database) {
-    //     let mut result = database.select(&self.body[0]);
-    //     for atom in &self.body[1..] {
-    //         result = result.semi_join(&atom);
-    //     }
-    // }
-    pub fn is_acyclic(&self) -> bool {
-        let hypergraph = Hypergraph::new(self);
-        hypergraph.is_acyclic()
+    fn is_boolean(&self) -> bool {
+        self.head.terms.is_empty()
     }
-
-    fn query(&self, atom: &Atom, database: &Database) -> Table {
-        let mut db = database.clone();
-        let node_table = db.get_table_by_name(&atom.relation_name);
-        db.select(atom, node_table)
-    }
-
-    fn construct_join_tree(&self) -> Option<JoinTree> {
-        if !self.is_acyclic() {
-            return None;
-        }
-        let mut join_tree = JoinTree::new();
-        let mut hypergraph = Hypergraph::new(self);
-
-        while let Some((ear, witness)) = hypergraph.find_ear() {
-            if ear == witness {
-                hypergraph.hyperedges.remove(&ear);
-                continue;
-            }
-            join_tree.add_edge(ear.clone(), witness.clone());
-            hypergraph.hyperedges.remove(&ear);
-        }
-
-        Some(join_tree)
-    }
-
-    fn construct_consistent_db(&self, join_tree: &JoinTree, d: &Database) -> Database {
-        let mut Q: Database = d.clone();
-        let mut nodes = join_tree.get_nodes();
+    fn yannakakis_boolean(&self, join_tree: &JoinTree, database: &Database) -> bool {
         let root = join_tree.get_root();
+        let Q_root = self.compute_Q(join_tree, database);
+        if !Q_root.get_table_by_name(&root.relation_name).is_empty() {
+            println!("answer: true");
+            return true;
+        }
+        print!("answer: false");
+        false
+    }
+    fn compute_Q(&self, join_tree: &JoinTree, database: &Database) -> Database {
+        let mut Q: Database = database.clone();
+        let mut nodes = join_tree.get_nodes();
         // preorder traversal
         while !nodes.is_empty() {
             let tem = nodes.clone();
@@ -226,11 +195,62 @@ impl Query {
             }
             nodes.remove(s);
         }
-        let mut a_database = Q.clone();
-        let mut nodes = join_tree.get_nodes();
-        let a_r = self.query(&root, &Q);
-        a_database.set_table(&root.relation_name, a_r);
+        Q
+    }
+}
+
+impl Query {
+    // fn run(&self, database: &Database) {
+    //     let mut result = database.select(&self.body[0]);
+    //     for atom in &self.body[1..] {
+    //         result = result.semi_join(&atom);
+    //     }
+    // }
+    pub fn is_acyclic(&self) -> bool {
+        let hypergraph = Hypergraph::new(self);
+        hypergraph.is_acyclic()
+    }
+
+    fn query(&self, atom: &Atom, database: &Database) -> Table {
+        let node_table = database.get_table_by_name(&atom.relation_name);
+        database.select(atom, node_table)
+    }
+
+    fn construct_join_tree(&self) -> Option<JoinTree> {
+        if !self.is_acyclic() {
+            return None;
+        }
+        let mut join_tree = JoinTree::new();
+        let mut hypergraph = Hypergraph::new(self);
+
+        while let Some((ear, witness)) = hypergraph.find_ear() {
+            if ear == witness {
+                hypergraph.hyperedges.remove(&ear);
+                continue;
+            }
+            join_tree.add_edge(witness.clone(), ear.clone());
+            hypergraph.hyperedges.remove(&ear);
+        }
+
+        Some(join_tree)
+    }
+
+    fn construct_consistent_db(
+        &self,
+        join_tree: &JoinTree,
+        database: &Database,
+    ) -> Option<Database> {
+        // preorder traversal
+        let Q: Database = self.compute_Q(join_tree, database);
+        let root = join_tree.get_root();
+        let a_r = Q.get_table_by_name(&root.relation_name);
+        if a_r.is_empty() {
+            return None;
+        }
+        let mut a_database = database.clone();
+        a_database.set_table(&root.relation_name, a_r.clone());
         // postorder traversal
+        let mut nodes = join_tree.get_nodes();
         while !nodes.is_empty() {
             let tem = nodes.clone();
             let s = tem
@@ -263,7 +283,7 @@ impl Query {
             }
             nodes.remove(s);
         }
-        a_database
+        Some(a_database)
     }
 }
 
@@ -417,6 +437,6 @@ impl Hypergraph {
 fn main() {
     let queries = parse_queries();
     let database = get_database();
-    let query = get_query_2();
-    query.yannakakis(&database);
+    let query = &queries[3];
+    query.yannakakis(database);
 }
