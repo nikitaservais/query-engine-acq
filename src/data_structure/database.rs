@@ -1,7 +1,11 @@
 use crate::data_structure::query::Term::{Constant, Variable};
 use crate::data_structure::query::{Atom, Query, Term};
 use crate::data_structure::table::Table;
-use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, StringArray};
+use arrow::array::Array;
+use arrow::array::ArrayRef;
+use arrow::array::BooleanArray;
+use arrow::array::RecordBatch;
+use arrow::array::StringArray;
 use arrow_schema::{Field, Schema};
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -36,28 +40,28 @@ impl Database {
             for (index, term) in atom.terms.iter().enumerate() {
                 match term {
                     Variable(name) => {
-                        let field = table.data.schema().field(index).clone();
+                        let field = table.get_data().schema().field(index).clone();
                         new_field.push(field.clone().with_name(name));
                     }
                     Constant(_) => {
-                        new_field.push(table.data.schema().field(index).clone());
+                        new_field.push(table.get_data().schema().field(index).clone());
                     }
                 }
             }
             let schema = Schema::new(new_field);
-            let new_columns = table.data.columns().to_vec();
-            new_table.data = RecordBatch::try_new(Arc::new(schema), new_columns).unwrap();
+            let new_columns = table.get_data().columns().to_vec();
+            new_table.set_data(RecordBatch::try_new(Arc::new(schema), new_columns).unwrap());
             self.set_table(&atom.relation_name, new_table);
         }
     }
 
     pub fn set_table(&mut self, table_name: &str, table: Table) {
         match table_name {
-            "beers" => self.beers.data = table.data,
-            "breweries" => self.breweries.data = table.data,
-            "categories" => self.categories.data = table.data,
-            "locations" => self.locations.data = table.data,
-            "styles" => self.styles.data = table.data,
+            "beers" => self.beers.data = table.get_data(),
+            "breweries" => self.breweries.data = table.get_data(),
+            "categories" => self.categories.data = table.get_data(),
+            "locations" => self.locations.data = table.get_data(),
+            "styles" => self.styles.data = table.get_data(),
             _ => panic!("Table not found"),
         }
     }
@@ -73,12 +77,12 @@ impl Database {
         }
     }
 
-    pub fn project(&self, attr: &Vec<Term>, table: &Table) -> Table {
+    pub fn project(&self, attr: &[Term], table: &Table) -> Table {
         let mut indices = vec![];
         for (index, term) in attr.iter().enumerate() {
             match term {
                 Variable(name) => {
-                    if let Ok(index) = table.data.schema().index_of(&name) {
+                    if let Ok(index) = table.get_data().schema().index_of(name) {
                         indices.push(index);
                     }
                 }
@@ -87,7 +91,7 @@ impl Database {
                 }
             }
         }
-        self.projection(&indices, table)
+        table.project(&indices)
     }
 
     pub fn intersection(&self, table: &Table, table_2: &Table) -> Table {
@@ -102,15 +106,7 @@ impl Database {
             .unwrap();
             filter = arrow::compute::kernels::boolean::or(&filter, &eq).unwrap();
         }
-        let data = arrow::compute::filter_record_batch(&table.data, &filter).unwrap();
-        Table {
-            name: table.name.clone(),
-            data,
-        }
-    }
-
-    pub fn projection(&self, indices: &[usize], table: &Table) -> Table {
-        let data = table.data.project(&indices).unwrap();
+        let data = arrow::compute::filter_record_batch(&table.get_data(), &filter).unwrap();
         Table {
             name: table.name.clone(),
             data,
@@ -131,22 +127,12 @@ impl Database {
         left_table: &Table,
         right_table: &Table,
     ) -> Table {
-        let cartesian_product = self.cartesian_product(&left_table, &right_table);
+        let cartesian_product = self.cartesian_product(left_table, right_table);
         let union = self.merge(left, right);
         let mut join_table = self.select(&union, &cartesian_product);
-        let union = self.union(&left.terms, &right.terms);
+        let union = Atom::union(left, right);
         join_table = self.project(&union, &join_table);
         join_table
-    }
-
-    fn union(&self, left: &Vec<Term>, right: &Vec<Term>) -> Vec<Term> {
-        let mut result = left.clone();
-        for term in right {
-            if !result.contains(&term) {
-                result.push(term.clone());
-            }
-        }
-        result
     }
 
     fn merge(&self, left: &Atom, right: &Atom) -> Atom {
@@ -233,41 +219,8 @@ impl Database {
         }
     }
 
-    fn get_match_indexes(column: &ArrayRef, column_2: &ArrayRef) -> Int32Array {
-        let filter = arrow::compute::kernels::cmp::distinct(column, column_2).unwrap();
-        let refs = column
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap()
-            .iter()
-            .enumerate()
-            .map(|(i, value)| match value {
-                None => None,
-                Some(value) => {
-                    let value = column_2
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap()
-                        .iter()
-                        .enumerate()
-                        .find(|(j, value_2)| match value_2 {
-                            Some(v) => &value == v,
-                            None => false,
-                        })
-                        .unwrap()
-                        .0;
-
-                    return Some(value);
-                }
-            })
-            .map(|i| i.unwrap())
-            .map(|i| i as i32)
-            .collect::<Vec<_>>();
-        Int32Array::from(refs)
-    }
-
     pub fn select(&self, query: &Atom, table: &Table) -> Table {
-        let mut filter = BooleanArray::from(vec![true; table.data.num_rows()]);
+        let mut filter = BooleanArray::from(vec![true; table.get_data().num_rows()]);
         for (index, term) in query.terms.iter().enumerate() {
             match term {
                 Variable(name) => {
@@ -304,7 +257,7 @@ impl Database {
                 }
             };
         }
-        let data = arrow::compute::filter_record_batch(&table.data, &filter).unwrap();
+        let data = arrow::compute::filter_record_batch(&table.get_data(), &filter).unwrap();
         Table {
             name: table.name.clone(),
             data,

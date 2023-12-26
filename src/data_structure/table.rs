@@ -1,6 +1,7 @@
+use std::fmt::{Display, Formatter};
+
 use arrow::array::{Array, RecordBatch, StringArray};
 use arrow::util::pretty::pretty_format_batches;
-use std::fmt::{Display, Formatter};
 
 #[derive(Clone)]
 pub struct Table {
@@ -19,13 +20,18 @@ impl Display for Table {
 }
 
 impl Table {
-    pub fn set_name(&mut self, name: &String) {
-        self.name = name.clone();
+    pub fn set_data(&mut self, data: RecordBatch) {
+        self.data = data;
     }
-    pub fn get_data(&self) -> &RecordBatch {
-        &self.data
+
+    pub fn set_name(&mut self, name: &str) {
+        self.name = name.to_string();
     }
-    pub(crate) fn get_column(&self, index: &usize) -> Option<&StringArray> {
+    pub fn get_data(&self) -> RecordBatch {
+        self.data.clone()
+    }
+
+    pub fn get_column(&self, index: &usize) -> Option<&StringArray> {
         self.data
             .column(*index)
             .as_any()
@@ -34,5 +40,14 @@ impl Table {
 
     pub fn is_empty(&self) -> bool {
         self.data.num_rows() == 0
+    }
+
+    pub fn project(&self, indices: &[usize]) -> Self {
+        let data = self.data.project(indices).unwrap();
+        let table = self.clone();
+        Table {
+            name: table.name,
+            data,
+        }
     }
 }

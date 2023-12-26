@@ -107,6 +107,7 @@ impl Query {
         print!("answer: false");
         false
     }
+
     fn compute_Q(&self, join_tree: &JoinTree, database: &Database) -> Database {
         let mut Q: Database = database.clone();
         let mut nodes = join_tree.get_nodes();
@@ -164,12 +165,6 @@ impl Query {
 }
 
 impl Query {
-    // fn run(&self, database: &Database) {
-    //     let mut result = database.select(&self.body[0]);
-    //     for atom in &self.body[1..] {
-    //         result = result.semi_join(&atom);
-    //     }
-    // }
     pub fn is_acyclic(&self) -> bool {
         let hypergraph = Hypergraph::new(self);
         hypergraph.is_acyclic()
@@ -261,6 +256,18 @@ struct Constant(String);
 pub struct Atom {
     pub relation_name: String,
     pub terms: Vec<Term>,
+}
+
+impl Atom {
+    pub fn union(left: &Atom, right: &Atom) -> Vec<Term> {
+        let mut result = left.terms.clone();
+        for term in right.terms.clone() {
+            if !result.contains(&term) {
+                result.push(term.clone());
+            }
+        }
+        result
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
