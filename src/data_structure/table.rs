@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 
-use arrow::array::{Array, RecordBatch, StringArray};
+use crate::data_structure::query::Term;
+use crate::data_structure::query::Term::{Constant, Variable};
+use arrow::array::{Array, BooleanArray, RecordBatch, StringArray};
 use arrow::util::pretty::pretty_format_batches;
 
 #[derive(Clone)]
@@ -42,11 +44,47 @@ impl Table {
         self.data.num_rows() == 0
     }
 
-    pub fn project(&self, indices: &[usize]) -> Self {
+    pub fn projection(&self, indices: &[usize]) -> Self {
         let data = self.data.project(indices).unwrap();
         let table = self.clone();
         Table {
             name: table.name,
+            data,
+        }
+    }
+
+    pub fn project(&self, attr: &[Term]) -> Self {
+        let mut indices = vec![];
+        for (index, term) in attr.iter().enumerate() {
+            match term {
+                Variable(name) => {
+                    if let Ok(index) = self.data.schema().index_of(name) {
+                        indices.push(index);
+                    }
+                }
+                Constant(_) => {
+                    indices.push(index);
+                }
+            }
+        }
+        self.projection(&indices)
+    }
+
+    pub fn intersection(&self, table: &Table) -> Table {
+        let column = self.get_column(&0).unwrap();
+        let column_2 = table.get_column(&0).unwrap();
+        let mut filter = BooleanArray::from(vec![false; column.len()]);
+        for i in 0..column_2.len() {
+            let eq = arrow::compute::kernels::cmp::eq(
+                &column,
+                &StringArray::new_scalar(column_2.value(i)),
+            )
+            .unwrap();
+            filter = arrow::compute::kernels::boolean::or(&filter, &eq).unwrap();
+        }
+        let data = arrow::compute::filter_record_batch(&self.get_data(), &filter).unwrap();
+        Table {
+            name: self.name.clone(),
             data,
         }
     }

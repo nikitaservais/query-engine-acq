@@ -33,10 +33,10 @@ impl Hypergraph {
                 }
             }
             for (witness_candidate, witness_candidate_vertices) in &self.hyperedges {
-                if ear_candidate != witness_candidate {
-                    if witness_vertices.is_subset(witness_candidate_vertices) {
-                        return Some((ear_candidate.clone(), witness_candidate.clone()));
-                    }
+                if ear_candidate != witness_candidate
+                    && witness_vertices.is_subset(witness_candidate_vertices)
+                {
+                    return Some((ear_candidate.clone(), witness_candidate.clone()));
                 }
             }
         }
@@ -71,10 +71,8 @@ impl Hypergraph {
 
     fn is_vertex_exclusive(&self, hyperedge: &Atom, vertex: &Term) -> bool {
         for (other_hyperedge, other_vertices) in &self.hyperedges {
-            if hyperedge != other_hyperedge {
-                if other_vertices.contains(vertex) {
-                    return false;
-                }
+            if hyperedge != other_hyperedge && other_vertices.contains(vertex) {
+                return false;
             }
         }
         true

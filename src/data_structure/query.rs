@@ -28,26 +28,26 @@ impl Query {
             println!(
                 "{}:\n{}",
                 atom.relation_name,
-                database.get_table_by_name(&atom.relation_name)
+                database.get_table(&atom.relation_name)
             );
         }
     }
 
-    pub fn yannakakis(&self, mut database: Database) {
+    pub fn yannakakis(&self, mut database: Database) -> Option<Table> {
         database.rename(&self);
         let Some(join_tree) = self.construct_join_tree() else {
             println!("Not acyclic");
-            return;
+            return None;
         };
         println!("join tree:\n{}", join_tree);
         if self.is_boolean() {
             print!("Boolean query:");
             self.yannakakis_boolean(&join_tree, &database);
-            return;
+            return None;
         }
         let Some(consistent_database) = self.construct_consistent_db(&join_tree, &database) else {
             println!("Not consistent, no answer");
-            return;
+            return None;
         };
         self.print_query_database(&consistent_database);
         let mut o_database = consistent_database.clone();
@@ -65,23 +65,23 @@ impl Query {
                 let union = self.union(&s.terms, &self.head.terms);
                 println!("{:?}∪\n{:?}\n={:?}", s.terms, self.head.terms, union);
                 for child in join_tree.get_children(s) {
-                    let old_O_s = o_database.get_table_by_name(&s.relation_name).clone();
+                    let old_O_s = o_database.get_table(&s.relation_name).clone();
                     println!(
                         "Join table: \n{}\n{}",
-                        o_database.get_table_by_name(&s.relation_name),
-                        o_database.get_table_by_name(&child.relation_name),
+                        o_database.get_table(&s.relation_name),
+                        o_database.get_table(&child.relation_name),
                     );
                     let join = o_database.join(
                         s,
                         &child,
-                        o_database.get_table_by_name(&s.relation_name),
-                        o_database.get_table_by_name(&child.relation_name),
+                        o_database.get_table(&s.relation_name),
+                        o_database.get_table(&child.relation_name),
                     );
                     println!(
                         "O_{} ⋈ O_{} =\n{}",
                         s.relation_name, child.relation_name, join
                     );
-                    let o_s = o_database.project(&union, &join);
+                    let o_s = join.project(&union);
                     println!("set O_{}\n{}\nto\n{}", s.relation_name, old_O_s, o_s);
                     o_database.set_table(&s.relation_name, o_s);
                 }
@@ -89,10 +89,11 @@ impl Query {
             nodes.remove(s);
         }
         self.print_query_database(&o_database);
-        let O_r = o_database.get_table_by_name(&join_tree.get_root().relation_name);
-        let answer = o_database.project(&self.head.terms, &O_r);
+        let O_r = o_database.get_table(&join_tree.get_root().relation_name);
+        let answer = O_r.project(&self.head.terms);
 
         println!("O_r:\n{}", answer);
+        Some(answer)
     }
     fn is_boolean(&self) -> bool {
         self.head.terms.is_empty()
@@ -100,7 +101,7 @@ impl Query {
     fn yannakakis_boolean(&self, join_tree: &JoinTree, database: &Database) -> bool {
         let root = join_tree.get_root();
         let Q_root = self.compute_Q(join_tree, database);
-        if !Q_root.get_table_by_name(&root.relation_name).is_empty() {
+        if !Q_root.get_table(&root.relation_name).is_empty() {
             println!("answer: true");
             return true;
         }
@@ -127,7 +128,7 @@ impl Query {
                 println!("set Q_{}\n to\n{}", s.relation_name, &q_s);
                 Q.set_table(&s.relation_name, q_s);
             } else {
-                let old_Q_s = Q.get_table_by_name(&s.relation_name).clone();
+                let old_Q_s = Q.get_table(&s.relation_name).clone();
                 println!(
                     "Q_{} =: {}",
                     s.relation_name,
@@ -145,13 +146,12 @@ impl Query {
                 // let mut
                 let mut Q_s = q_s.clone();
                 for child in join_tree.get_children(s) {
-                    let semi_join =
-                        Q.semi_join(s, &child, &q_s, Q.get_table_by_name(&child.relation_name));
+                    let semi_join = Q.semi_join(s, &child, &q_s, Q.get_table(&child.relation_name));
                     println!(
                         "q_{} ⋉ Q_{} =\n{}",
                         s.relation_name, child.relation_name, semi_join
                     );
-                    Q_s = Q.intersection(&Q_s, &semi_join);
+                    Q_s = semi_join.intersection(&Q_s);
                     // println!("∩ {}\n{}", Q_s, semi_join)
                 }
 
@@ -171,7 +171,7 @@ impl Query {
     }
 
     fn query(&self, atom: &Atom, database: &Database) -> Table {
-        let node_table = database.get_table_by_name(&atom.relation_name);
+        let node_table = database.get_table(&atom.relation_name);
         database.select(atom, node_table)
     }
 
@@ -202,7 +202,7 @@ impl Query {
         // preorder traversal
         let Q: Database = self.compute_Q(join_tree, database);
         let root = join_tree.get_root();
-        let a_r = Q.get_table_by_name(&root.relation_name);
+        let a_r = Q.get_table(&root.relation_name);
         if a_r.is_empty() {
             return None;
         }
@@ -223,7 +223,7 @@ impl Query {
                 })
                 .unwrap();
             for child in join_tree.get_children(s) {
-                let old_A_child = a_database.get_table_by_name(&child.relation_name).clone();
+                let old_A_child = a_database.get_table(&child.relation_name).clone();
                 println!(
                     "A_{} =: Q_{} ⋉ A_{}",
                     child.relation_name, child.relation_name, s.relation_name
@@ -231,8 +231,8 @@ impl Query {
                 let a_child = a_database.semi_join(
                     &child,
                     s,
-                    Q.get_table_by_name(&child.relation_name),
-                    a_database.get_table_by_name(&s.relation_name),
+                    Q.get_table(&child.relation_name),
+                    a_database.get_table(&s.relation_name),
                 );
                 println!(
                     "set A_{}\n{}\nto\n{}",
@@ -259,6 +259,13 @@ pub struct Atom {
 }
 
 impl Atom {
+    pub fn merge(left: &Atom, right: &Atom) -> Atom {
+        Atom {
+            relation_name: format!("{}_{}", left.relation_name, right.relation_name),
+            terms: [left.terms.clone(), right.terms.clone()].concat(),
+        }
+    }
+
     pub fn union(left: &Atom, right: &Atom) -> Vec<Term> {
         let mut result = left.terms.clone();
         for term in right.terms.clone() {

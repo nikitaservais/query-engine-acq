@@ -61,11 +61,15 @@ fn parse_body(input: &str) -> IResult<&str, Vec<Atom>> {
     )(input)
 }
 
-fn parse_query(input: &str) -> IResult<&str, Query> {
-    map(tuple((parse_head, parse_body)), |(head, body)| Query {
+pub fn parse_query(input: &str) -> Query {
+    let Ok((_, result)) = map(tuple((parse_head, parse_body)), |(head, body)| Query {
         head,
         body,
-    })(input)
+    })(input) else {
+        panic!("Error parsing query: {}", input);
+    };
+
+    result
 }
 
 pub fn parse_queries(path: &str) -> Vec<Query> {
@@ -74,10 +78,7 @@ pub fn parse_queries(path: &str) -> Vec<Query> {
     let lines = input.lines();
 
     for line in lines {
-        let Ok((_, query)) = parse_query(line) else {
-            println!("Error parsing query: {}", line);
-            continue;
-        };
+        let query = parse_query(line);
         queries.push(query);
     }
     queries

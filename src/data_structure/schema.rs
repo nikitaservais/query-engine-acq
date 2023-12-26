@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Display;
 use std::fs::File;
 use std::sync::Arc;
 
 use crate::data_structure::database::Database;
 use crate::data_structure::table::Table;
 use arrow;
-use arrow::array::{Array, RecordBatch};
+use arrow::array::RecordBatch;
 use arrow::datatypes::{DataType, Field, Schema};
 
 fn load(path: &str, schema: Schema) -> RecordBatch {

@@ -1,5 +1,5 @@
 use crate::data_structure::query::Term::{Constant, Variable};
-use crate::data_structure::query::{Atom, Query, Term};
+use crate::data_structure::query::{Atom, Query};
 use crate::data_structure::table::Table;
 use arrow::array::Array;
 use arrow::array::ArrayRef;
@@ -19,8 +19,6 @@ pub struct Database {
     pub styles: Table,
 }
 
-impl Database {}
-
 impl Display for Database {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -34,7 +32,7 @@ impl Display for Database {
 impl Database {
     pub fn rename(&mut self, query: &Query) {
         for atom in query.body.iter() {
-            let table = self.get_table_by_name(&atom.relation_name);
+            let table = self.get_table(&atom.relation_name);
             let mut new_table = table.clone();
             let mut new_field: Vec<Field> = vec![];
             for (index, term) in atom.terms.iter().enumerate() {
@@ -66,8 +64,8 @@ impl Database {
         }
     }
 
-    pub fn get_table_by_name(&self, relation_name: &str) -> &Table {
-        match relation_name {
+    pub fn get_table(&self, name: &str) -> &Table {
+        match name {
             "beers" => &self.beers,
             "breweries" => &self.breweries,
             "categories" => &self.categories,
@@ -77,45 +75,9 @@ impl Database {
         }
     }
 
-    pub fn project(&self, attr: &[Term], table: &Table) -> Table {
-        let mut indices = vec![];
-        for (index, term) in attr.iter().enumerate() {
-            match term {
-                Variable(name) => {
-                    if let Ok(index) = table.get_data().schema().index_of(name) {
-                        indices.push(index);
-                    }
-                }
-                Constant(_) => {
-                    indices.push(index);
-                }
-            }
-        }
-        table.project(&indices)
-    }
-
-    pub fn intersection(&self, table: &Table, table_2: &Table) -> Table {
-        let column = table.get_column(&0).unwrap();
-        let column_2 = table_2.get_column(&0).unwrap();
-        let mut filter = BooleanArray::from(vec![false; column.len()]);
-        for i in 0..column_2.len() {
-            let eq = arrow::compute::kernels::cmp::eq(
-                &column,
-                &StringArray::new_scalar(column_2.value(i)),
-            )
-            .unwrap();
-            filter = arrow::compute::kernels::boolean::or(&filter, &eq).unwrap();
-        }
-        let data = arrow::compute::filter_record_batch(&table.get_data(), &filter).unwrap();
-        Table {
-            name: table.name.clone(),
-            data,
-        }
-    }
-
     pub fn semi_join(&self, query: &Atom, query_2: &Atom, table: &Table, table_2: &Table) -> Table {
         let join_table = self.join(query, query_2, table, table_2);
-        let mut table = self.project(&query.terms, &join_table);
+        let mut table = join_table.project(&query.terms);
         table.set_name(&query.relation_name);
         table
     }
@@ -128,18 +90,11 @@ impl Database {
         right_table: &Table,
     ) -> Table {
         let cartesian_product = self.cartesian_product(left_table, right_table);
-        let union = self.merge(left, right);
+        let union = Atom::merge(left, right);
         let mut join_table = self.select(&union, &cartesian_product);
         let union = Atom::union(left, right);
-        join_table = self.project(&union, &join_table);
+        join_table = join_table.project(&union);
         join_table
-    }
-
-    fn merge(&self, left: &Atom, right: &Atom) -> Atom {
-        Atom {
-            relation_name: format!("{}_{}", left.relation_name, right.relation_name),
-            terms: [left.terms.clone(), right.terms.clone()].concat(),
-        }
     }
 
     fn cartesian_product(&self, left: &Table, right: &Table) -> Table {
@@ -149,14 +104,14 @@ impl Database {
                     .schema()
                     .all_fields()
                     .into_iter()
-                    .map(|f| f.clone())
+                    .cloned()
                     .collect::<Vec<_>>(),
                 right
                     .data
                     .schema()
                     .all_fields()
                     .into_iter()
-                    .map(|f| f.clone())
+                    .cloned()
                     .collect(),
             ]
             .concat(),
@@ -171,7 +126,7 @@ impl Database {
         }
 
         let mut new_left_columns: Vec<ArrayRef> = vec![];
-        for column in left.data.columns().clone() {
+        for column in left.data.columns() {
             let clone = column.clone();
             let v = std::iter::repeat(clone.as_ref())
                 .take(right.data.num_rows())
@@ -185,7 +140,7 @@ impl Database {
             new_left_columns.push(new_column);
         }
         let mut new_right_columns = vec![];
-        for column in right.data.columns().clone() {
+        for column in right.data.columns() {
             let clone = column.clone();
             let v = std::iter::repeat(clone.as_ref())
                 .take(left.data.num_rows())
@@ -201,14 +156,8 @@ impl Database {
         let data = RecordBatch::try_new(
             Arc::new(schema),
             [
-                new_left_columns
-                    .into_iter()
-                    .map(|c| c.into())
-                    .collect::<Vec<_>>(),
-                new_right_columns
-                    .into_iter()
-                    .map(|c| c.into())
-                    .collect::<Vec<_>>(),
+                new_left_columns.into_iter().collect::<Vec<_>>(),
+                new_right_columns.into_iter().collect::<Vec<_>>(),
             ]
             .concat(),
         )
@@ -237,7 +186,7 @@ impl Database {
                         })
                         .map(|(i, _)| i)
                         .collect::<Vec<_>>();
-                    if same_variables.len() == 0 {
+                    if same_variables.is_empty() {
                         continue;
                     }
                     for same_var in same_variables {
