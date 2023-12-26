@@ -1,10 +1,9 @@
-use crate::{Atom, Query, Term};
+use crate::data_structure::query::{Atom, Query, Term};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::combinator::map;
 use nom::multi::separated_list0;
-use nom::sequence::{delimited, preceded, tuple};
-use nom::Err::Error;
+use nom::sequence::{delimited, tuple};
 use nom::IResult;
 
 fn parse_variable(input: &str) -> IResult<&str, Term> {
@@ -69,21 +68,18 @@ fn parse_query(input: &str) -> IResult<&str, Query> {
     })(input)
 }
 
-pub fn parse_queries() -> Vec<Query> {
+pub fn parse_queries(path: &str) -> Vec<Query> {
     let mut queries = Vec::new();
-    // read queries from file input.txt
-    let input = std::fs::read_to_string("input.txt").unwrap();
+    let input = std::fs::read_to_string(path).unwrap();
     let lines = input.lines();
 
     for line in lines {
-        // let t = parse_body("Beers(u1,x,u2,'0.07',u3,u4,y,u5),Beers(u1,x,u2,'0.07',u3,u4,y,u5).");
-        let query = parse_query(line);
-        match query {
-            Ok((_, query)) => queries.push(query),
-            Err(_) => println!("Error parsing query: {}", line),
-        }
+        let Ok((_, query)) = parse_query(line) else {
+            println!("Error parsing query: {}", line);
+            continue;
+        };
+        queries.push(query);
     }
-
     queries
 }
 

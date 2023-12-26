@@ -1,63 +1,34 @@
-use std::collections::HashMap;
+use crate::data_structure::query::Term::{Constant, Variable};
+use crate::data_structure::query::{Atom, Query, Term};
+use crate::data_structure::table::Table;
+use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, StringArray};
+use arrow_schema::{Field, Schema};
 use std::fmt::{Display, Formatter};
-use std::fs::File;
 use std::sync::Arc;
 
-use arrow;
-use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, RecordBatch, StringArray};
-use arrow::datatypes::{DataType, Field, Schema};
-use arrow::util::pretty::pretty_format_batches;
-
-use crate::Term::{Constant, Variable};
-use crate::{Atom, Query, Term};
-
 #[derive(Clone)]
-pub struct Table {
-    name: String,
-    data: RecordBatch,
+pub struct Database {
+    pub beers: Table,
+    pub breweries: Table,
+    pub categories: Table,
+    pub locations: Table,
+    pub styles: Table,
 }
 
-impl Display for Table {
+impl Database {}
+
+impl Display for Database {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}",
-            pretty_format_batches(&[self.data.clone()]).unwrap()
+            "{}\n{}\n{}\n{}\n{}",
+            self.beers, self.breweries, self.categories, self.locations, self.styles
         )
     }
 }
 
-impl Table {
-    // name setter
-    pub fn set_name(&mut self, name: &String) {
-        self.name = name.clone();
-    }
-    pub fn get_data(&self) -> &RecordBatch {
-        &self.data
-    }
-    fn get_column(&self, index: &usize) -> Option<&StringArray> {
-        self.data
-            .column(*index)
-            .as_any()
-            .downcast_ref::<StringArray>()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.data.num_rows() == 0
-    }
-}
-
-#[derive(Clone)]
-pub struct Database {
-    beers: Table,
-    breweries: Table,
-    categories: Table,
-    locations: Table,
-    styles: Table,
-}
-
 impl Database {
-    pub(crate) fn rename(&mut self, query: &Query) {
+    pub fn rename(&mut self, query: &Query) {
         for atom in query.body.iter() {
             let table = self.get_table_by_name(&atom.relation_name);
             let mut new_table = table.clone();
@@ -79,19 +50,7 @@ impl Database {
             self.set_table(&atom.relation_name, new_table);
         }
     }
-}
 
-impl Display for Database {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}\n{}\n{}\n{}\n{}",
-            self.beers, self.breweries, self.categories, self.locations, self.styles
-        )
-    }
-}
-
-impl Database {
     pub fn set_table(&mut self, table_name: &str, table: Table) {
         match table_name {
             "beers" => self.beers.data = table.data,
@@ -102,9 +61,7 @@ impl Database {
             _ => panic!("Table not found"),
         }
     }
-}
 
-impl Database {
     pub fn get_table_by_name(&self, relation_name: &str) -> &Table {
         match relation_name {
             "beers" => &self.beers,
@@ -369,127 +326,5 @@ impl Database {
             name: table.name.clone(),
             data,
         }
-    }
-}
-
-fn load(path: &str, schema: Schema) -> RecordBatch {
-    let file = File::open(format!("data/{}", path)).unwrap();
-    // get the file size
-    let file_size = file.metadata().unwrap().len();
-    let mut csv_reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
-        .with_header(true)
-        .with_batch_size(file_size as usize)
-        .build(file)
-        .unwrap();
-
-    csv_reader.next().unwrap().unwrap()
-}
-
-pub fn beers() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("breweries".to_string(), "brew_id".to_string());
-    metadata.insert("styles".to_string(), "style".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("beer_id", DataType::Utf8, true),
-            Field::new("brew_id", DataType::Utf8, true),
-            Field::new("beer", DataType::Utf8, true),
-            Field::new("abv", DataType::Utf8, true),
-            Field::new("ibu", DataType::Utf8, true),
-            Field::new("ounces", DataType::Utf8, true),
-            Field::new("style", DataType::Utf8, true),
-            Field::new("style2", DataType::Utf8, true),
-        ],
-        metadata,
-    )
-}
-
-pub fn breweries() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("locations".to_string(), "brew_id".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("brew_id", DataType::Utf8, true),
-            Field::new("brew_name", DataType::Utf8, true),
-            Field::new("address1", DataType::Utf8, true),
-            Field::new("address2", DataType::Utf8, true),
-            Field::new("city", DataType::Utf8, true),
-            Field::new("state", DataType::Utf8, true),
-            Field::new("code", DataType::Utf8, true),
-            Field::new("country", DataType::Utf8, true),
-            Field::new("phone", DataType::Utf8, true),
-            Field::new("website", DataType::Utf8, true),
-            Field::new("description", DataType::Utf8, true),
-        ],
-        metadata,
-    )
-}
-
-pub fn categories() -> Schema {
-    let mut metadata = HashMap::new();
-    Schema::new_with_metadata(
-        vec![
-            Field::new("cat_id", DataType::Utf8, true),
-            Field::new("cat_name", DataType::Utf8, true),
-        ],
-        metadata,
-    )
-}
-
-pub fn locations() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("breweries".to_string(), "brew_id".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("loc_id", DataType::Utf8, true),
-            Field::new("brew_id", DataType::Utf8, true),
-            Field::new("latitude", DataType::Utf8, true),
-            Field::new("longitude", DataType::Utf8, true),
-            Field::new("accuracy", DataType::Utf8, true),
-        ],
-        metadata,
-    )
-}
-
-pub fn styles() -> Schema {
-    let mut metadata = HashMap::new();
-    metadata.insert("categories".to_string(), "cat_id".to_string());
-    Schema::new_with_metadata(
-        vec![
-            Field::new("style_id", DataType::Utf8, true),
-            Field::new("cat_id", DataType::Utf8, true),
-            Field::new("style", DataType::Utf8, true),
-        ],
-        metadata,
-    )
-}
-
-pub fn get_database() -> Database {
-    let beers = load("beers.csv", beers());
-    let breweries = load("breweries.csv", breweries());
-    let categories = load("categories.csv", categories());
-    let locations = load("locations.csv", locations());
-    let styles = load("styles.csv", styles());
-    Database {
-        beers: Table {
-            name: "beers".to_string(),
-            data: beers,
-        },
-        breweries: Table {
-            name: "breweries".to_string(),
-            data: breweries,
-        },
-        categories: Table {
-            name: "categories".to_string(),
-            data: categories,
-        },
-        locations: Table {
-            name: "locations".to_string(),
-            data: locations,
-        },
-        styles: Table {
-            name: "styles".to_string(),
-            data: styles,
-        },
     }
 }
