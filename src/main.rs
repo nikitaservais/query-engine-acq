@@ -1,5 +1,5 @@
+use query_engine_acq::assignment::{answers_query, bool_answer, is_acyclic};
 use query_engine_acq::data_structure::parser::parse_queries;
-use query_engine_acq::engine::{answers_query, bool_answer, is_acyclic};
 
 #[derive(Debug)]
 pub struct Answer {
