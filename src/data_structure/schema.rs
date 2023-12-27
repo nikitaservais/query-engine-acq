@@ -1,12 +1,13 @@
 use std::fs::File;
 use std::sync::Arc;
 
-use crate::data_structure::database::Database;
-use crate::data_structure::query::Query;
-use crate::data_structure::table::Table;
 use arrow;
 use arrow::array::RecordBatch;
 use arrow::datatypes::{DataType, Field, Schema};
+
+use crate::data_structure::database::Database;
+use crate::data_structure::query::Query;
+use crate::data_structure::table::Table;
 
 fn load(path: &str, schema: Schema) -> RecordBatch {
     let file = File::open(format!("data/{}", path)).unwrap();

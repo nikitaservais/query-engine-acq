@@ -1,13 +1,8 @@
+use std::fmt;
+
 use crate::data_structure::database::Database;
 use crate::data_structure::hypergraph::Hypergraph;
 use crate::data_structure::join_tree::JoinTree;
-use arrow::array::RecordBatch;
-use arrow::ipc::Schema;
-use arrow_schema::SchemaBuilder;
-use std::fmt;
-use std::ops::Not;
-use std::sync::Arc;
-
 use crate::data_structure::relational_algebra;
 use crate::data_structure::table::Table;
 

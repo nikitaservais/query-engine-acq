@@ -5,7 +5,7 @@ fn example_query_4() {
     let query = query_engine_acq::data_structure::parser::parse_query(
         "Answer(x,y,z,w):-Beers(u1,v,x,'0.05','18',u2,'Vienna Lager',u3),Locations(u4,v,y,z,w).",
     );
-    let database = query_engine_acq::data_structure::schema::get_database();
+    let database = query_engine_acq::data_structure::schema::get_database_with_query(&query);
     let answer = query.yannakakis(database);
     let binding = answer.get_data();
     let x = binding

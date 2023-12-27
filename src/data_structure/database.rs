@@ -1,13 +1,11 @@
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, BooleanArray, StringArray};
-use arrow::compute::filter_record_batch;
 use arrow::record_batch::RecordBatch;
 use arrow_schema::{Field, Schema};
 
+use crate::data_structure::query::Query;
 use crate::data_structure::query::Term::{Constant, Variable};
-use crate::data_structure::query::{Atom, Query};
 use crate::data_structure::table::Table;
 
 #[derive(Clone)]

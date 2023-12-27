@@ -1,5 +1,6 @@
-use crate::data_structure::query::{Atom, Query, Term};
 use std::collections::{HashMap, HashSet};
+
+use crate::data_structure::query::{Atom, Query, Term};
 
 #[derive(Clone, Debug)]
 pub struct Hypergraph {

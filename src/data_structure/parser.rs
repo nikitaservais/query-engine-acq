@@ -1,10 +1,11 @@
-use crate::data_structure::query::{Atom, Query, Term};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::combinator::map;
+use nom::IResult;
 use nom::multi::separated_list0;
 use nom::sequence::{delimited, tuple};
-use nom::IResult;
+
+use crate::data_structure::query::{Atom, Query, Term};
 
 fn parse_variable(input: &str) -> IResult<&str, Term> {
     map(take_while1(|c: char| c.is_alphanumeric()), |s: &str| {

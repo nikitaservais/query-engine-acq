@@ -1,6 +1,7 @@
-use crate::data_structure::query::Atom;
 use std::collections::HashSet;
 use std::fmt;
+
+use crate::data_structure::query::Atom;
 
 #[derive(Clone, Debug)]
 pub struct JoinTree {

@@ -1,13 +1,14 @@
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use crate::data_structure::query::Term;
-use crate::data_structure::query::Term::{Constant, Variable};
 use arrow::array::{Array, BooleanArray, RecordBatch, StringArray};
 use arrow::util::pretty::pretty_format_batches;
 use arrow_ord::cmp::distinct;
 use arrow_schema::SchemaBuilder;
 use arrow_select::filter::filter_record_batch;
+
+use crate::data_structure::query::Term;
+use crate::data_structure::query::Term::{Constant, Variable};
 
 #[derive(Clone)]
 pub struct Table {
