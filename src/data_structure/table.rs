@@ -4,6 +4,8 @@ use crate::data_structure::query::Term;
 use crate::data_structure::query::Term::{Constant, Variable};
 use arrow::array::{Array, BooleanArray, RecordBatch, StringArray};
 use arrow::util::pretty::pretty_format_batches;
+use arrow_ord::cmp::distinct;
+use arrow_select::filter::filter_record_batch;
 
 #[derive(Clone)]
 pub struct Table {
@@ -82,7 +84,17 @@ impl Table {
             .unwrap();
             filter = arrow::compute::kernels::boolean::or(&filter, &eq).unwrap();
         }
-        let data = arrow::compute::filter_record_batch(&self.get_data(), &filter).unwrap();
+        let data = filter_record_batch(&self.get_data(), &filter).unwrap();
+        Table {
+            name: self.name.clone(),
+            data,
+        }
+    }
+
+    pub fn filter_unique(&self) -> Self {
+        let column = self.get_column(&0).unwrap();
+        let filter = distinct(column, column).unwrap();
+        let data = filter_record_batch(&self.get_data(), &filter).unwrap();
         Table {
             name: self.name.clone(),
             data,

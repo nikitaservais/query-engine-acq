@@ -78,6 +78,9 @@ pub fn parse_queries(path: &str) -> Vec<Query> {
     let lines = input.lines();
 
     for line in lines {
+        if line.is_empty() {
+            continue;
+        };
         let query = parse_query(line);
         queries.push(query);
     }
@@ -229,5 +232,5 @@ pub fn get_query() -> Query {
         },
     ];
 
-    Query { head: head, body }
+    Query { head, body }
 }

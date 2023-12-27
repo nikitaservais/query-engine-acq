@@ -7,8 +7,14 @@ pub struct JoinTree {
     edges: HashSet<(Atom, Atom)>,
 }
 
+impl Default for JoinTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JoinTree {
-    pub fn new() -> Self {
+    fn new() -> Self {
         JoinTree {
             edges: HashSet::new(),
         }
@@ -53,6 +59,29 @@ impl JoinTree {
             }
         }
         children
+    }
+
+    pub fn find_node_with_no_child_in_nodes(&self, nodes: &HashSet<Atom>) -> Option<Atom> {
+        let Some(node) = nodes.iter().find(|node| {
+            let child_nodes = self.get_children(node);
+            child_nodes.iter().all(|child| !nodes.contains(child))
+        }) else {
+            return None;
+        };
+        Some(node.clone())
+    }
+
+    pub fn find_node_with_no_parent_in_nodes(&self, nodes: &HashSet<Atom>) -> Option<Atom> {
+        let Some(node) = nodes.iter().find(|node| {
+            let parent_node = self.get_parent(node);
+            match parent_node {
+                Some(parent) => !nodes.contains(&parent),
+                None => true,
+            }
+        }) else {
+            return None;
+        };
+        Some(node.clone())
     }
 }
 

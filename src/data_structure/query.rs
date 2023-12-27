@@ -3,6 +3,7 @@ use crate::data_structure::hypergraph::Hypergraph;
 use crate::data_structure::join_tree::JoinTree;
 use std::fmt;
 
+use crate::data_structure::relational_algebra;
 use crate::data_structure::table::Table;
 
 #[derive(Debug)]
@@ -12,16 +13,6 @@ pub struct Query {
 }
 
 impl Query {
-    fn union(&self, left: &Vec<Term>, right: &Vec<Term>) -> Vec<Term> {
-        let mut result = left.clone();
-        for term in right {
-            if !result.contains(&term) {
-                result.push(term.clone());
-            }
-        }
-        result
-    }
-
     fn print_query_database(&self, database: &Database) {
         println!("query database:");
         for atom in &self.body {
@@ -34,7 +25,7 @@ impl Query {
     }
 
     pub fn yannakakis(&self, mut database: Database) -> Option<Table> {
-        database.rename(&self);
+        database.rename(self);
         let Some(join_tree) = self.construct_join_tree() else {
             println!("Not acyclic");
             return None;
@@ -53,25 +44,18 @@ impl Query {
         let mut o_database = consistent_database.clone();
         let mut nodes = join_tree.get_nodes();
         while !nodes.is_empty() {
-            let tem = nodes.clone();
-            let s = tem
-                .iter()
-                .find(|node| {
-                    let child_nodes = join_tree.get_children(node);
-                    child_nodes.iter().all(|child| !nodes.contains(child))
-                })
-                .unwrap();
+            let s = &join_tree.find_node_with_no_child_in_nodes(&nodes).unwrap();
             if !join_tree.get_children(s).is_empty() {
-                let union = self.union(&s.terms, &self.head.terms);
+                let union = Atom::union(s, &self.head);
                 println!("{:?}∪\n{:?}\n={:?}", s.terms, self.head.terms, union);
                 for child in join_tree.get_children(s) {
-                    let old_O_s = o_database.get_table(&s.relation_name).clone();
+                    let old_big_o_s = o_database.get_table(&s.relation_name).clone();
                     println!(
                         "Join table: \n{}\n{}",
                         o_database.get_table(&s.relation_name),
                         o_database.get_table(&child.relation_name),
                     );
-                    let join = o_database.join(
+                    let join = relational_algebra::join(
                         s,
                         &child,
                         o_database.get_table(&s.relation_name),
@@ -82,15 +66,15 @@ impl Query {
                         s.relation_name, child.relation_name, join
                     );
                     let o_s = join.project(&union);
-                    println!("set O_{}\n{}\nto\n{}", s.relation_name, old_O_s, o_s);
+                    println!("set O_{}\n{}\nto\n{}", s.relation_name, old_big_o_s, o_s);
                     o_database.set_table(&s.relation_name, o_s);
                 }
             }
             nodes.remove(s);
         }
         self.print_query_database(&o_database);
-        let O_r = o_database.get_table(&join_tree.get_root().relation_name);
-        let answer = O_r.project(&self.head.terms);
+        let big_o_r = o_database.get_table(&join_tree.get_root().relation_name);
+        let answer = big_o_r.project(&self.head.terms);
 
         println!("O_r:\n{}", answer);
         Some(answer)
@@ -98,10 +82,11 @@ impl Query {
     fn is_boolean(&self) -> bool {
         self.head.terms.is_empty()
     }
+
     fn yannakakis_boolean(&self, join_tree: &JoinTree, database: &Database) -> bool {
         let root = join_tree.get_root();
-        let Q_root = self.compute_Q(join_tree, database);
-        if !Q_root.get_table(&root.relation_name).is_empty() {
+        let big_q = self.compute_big_q(join_tree, database);
+        if !big_q.get_table(&root.relation_name).is_empty() {
             println!("answer: true");
             return true;
         }
@@ -109,26 +94,18 @@ impl Query {
         false
     }
 
-    fn compute_Q(&self, join_tree: &JoinTree, database: &Database) -> Database {
-        let mut Q: Database = database.clone();
+    fn compute_big_q(&self, join_tree: &JoinTree, database: &Database) -> Database {
+        let mut big_q: Database = database.clone();
         let mut nodes = join_tree.get_nodes();
-        // preorder traversal
         while !nodes.is_empty() {
-            let tem = nodes.clone();
-            let s = tem
-                .iter()
-                .find(|node| {
-                    let child_nodes = join_tree.get_children(node);
-                    child_nodes.iter().all(|child| !nodes.contains(child))
-                })
-                .unwrap();
-            let q_s = self.query(s, &Q);
+            let s = &join_tree.find_node_with_no_child_in_nodes(&nodes).unwrap();
+            let q_s = self.compute_atom(s, &big_q);
             if join_tree.get_children(s).is_empty() {
                 println!("Q_{} =: q_{}", s.relation_name, s.relation_name);
                 println!("set Q_{}\n to\n{}", s.relation_name, &q_s);
-                Q.set_table(&s.relation_name, q_s);
+                big_q.set_table(&s.relation_name, q_s);
             } else {
-                let old_Q_s = Q.get_table(&s.relation_name).clone();
+                let old_big_q_s = big_q.get_table(&s.relation_name).clone();
                 println!(
                     "Q_{} =: {}",
                     s.relation_name,
@@ -143,24 +120,30 @@ impl Query {
                         .collect::<Vec<String>>()
                         .join(" ∩ ")
                 );
-                // let mut
-                let mut Q_s = q_s.clone();
+                let mut big_q_s = q_s.clone();
                 for child in join_tree.get_children(s) {
-                    let semi_join = Q.semi_join(s, &child, &q_s, Q.get_table(&child.relation_name));
+                    let semi_join = relational_algebra::semi_join(
+                        s,
+                        &child,
+                        &q_s,
+                        big_q.get_table(&child.relation_name),
+                    );
                     println!(
                         "q_{} ⋉ Q_{} =\n{}",
                         s.relation_name, child.relation_name, semi_join
                     );
-                    Q_s = semi_join.intersection(&Q_s);
-                    // println!("∩ {}\n{}", Q_s, semi_join)
+                    big_q_s = semi_join.intersection(&big_q_s);
                 }
 
-                println!("set Q_{}\n{}\nto\n{}", s.relation_name, old_Q_s, Q_s);
-                Q.set_table(&s.relation_name, Q_s);
+                println!(
+                    "set Q_{}\n{}\nto\n{}",
+                    s.relation_name, old_big_q_s, big_q_s
+                );
+                big_q.set_table(&s.relation_name, big_q_s);
             }
             nodes.remove(s);
         }
-        Q
+        big_q
     }
 }
 
@@ -170,16 +153,16 @@ impl Query {
         hypergraph.is_acyclic()
     }
 
-    fn query(&self, atom: &Atom, database: &Database) -> Table {
+    fn compute_atom(&self, atom: &Atom, database: &Database) -> Table {
         let node_table = database.get_table(&atom.relation_name);
-        database.select(atom, node_table)
+        relational_algebra::select(atom, node_table)
     }
 
     fn construct_join_tree(&self) -> Option<JoinTree> {
         if !self.is_acyclic() {
             return None;
         }
-        let mut join_tree = JoinTree::new();
+        let mut join_tree = JoinTree::default();
         let mut hypergraph = Hypergraph::new(self);
 
         while let Some((ear, witness)) = hypergraph.find_ear() {
@@ -199,44 +182,32 @@ impl Query {
         join_tree: &JoinTree,
         database: &Database,
     ) -> Option<Database> {
-        // preorder traversal
-        let Q: Database = self.compute_Q(join_tree, database);
+        let big_q: Database = self.compute_big_q(join_tree, database);
         let root = join_tree.get_root();
-        let a_r = Q.get_table(&root.relation_name);
+        let a_r = big_q.get_table(&root.relation_name);
         if a_r.is_empty() {
             return None;
         }
         let mut a_database = database.clone();
         a_database.set_table(&root.relation_name, a_r.clone());
-        // postorder traversal
         let mut nodes = join_tree.get_nodes();
         while !nodes.is_empty() {
-            let tem = nodes.clone();
-            let s = tem
-                .iter()
-                .find(|node| {
-                    let parent_node = join_tree.get_parent(node);
-                    match parent_node {
-                        Some(parent) => !nodes.contains(&parent),
-                        None => true,
-                    }
-                })
-                .unwrap();
+            let s = &join_tree.find_node_with_no_parent_in_nodes(&nodes).unwrap();
             for child in join_tree.get_children(s) {
-                let old_A_child = a_database.get_table(&child.relation_name).clone();
+                let old_big_a_child = a_database.get_table(&child.relation_name).clone();
                 println!(
                     "A_{} =: Q_{} ⋉ A_{}",
                     child.relation_name, child.relation_name, s.relation_name
                 );
-                let a_child = a_database.semi_join(
+                let a_child = relational_algebra::semi_join(
                     &child,
                     s,
-                    Q.get_table(&child.relation_name),
+                    big_q.get_table(&child.relation_name),
                     a_database.get_table(&s.relation_name),
                 );
                 println!(
                     "set A_{}\n{}\nto\n{}",
-                    child.relation_name, old_A_child, a_child
+                    child.relation_name, old_big_a_child, a_child
                 );
                 a_database.set_table(&child.relation_name, a_child);
             }
@@ -259,8 +230,8 @@ pub struct Atom {
 }
 
 impl Atom {
-    pub fn merge(left: &Atom, right: &Atom) -> Atom {
-        Atom {
+    pub fn merge(left: &Atom, right: &Atom) -> Self {
+        Self {
             relation_name: format!("{}_{}", left.relation_name, right.relation_name),
             terms: [left.terms.clone(), right.terms.clone()].concat(),
         }

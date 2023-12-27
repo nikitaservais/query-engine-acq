@@ -1,14 +1,14 @@
+use std::fmt::{Display, Formatter};
+use std::sync::Arc;
+
+use arrow::array::{ArrayRef, BooleanArray, StringArray};
+use arrow::compute::filter_record_batch;
+use arrow::record_batch::RecordBatch;
+use arrow_schema::{Field, Schema};
+
 use crate::data_structure::query::Term::{Constant, Variable};
 use crate::data_structure::query::{Atom, Query};
 use crate::data_structure::table::Table;
-use arrow::array::Array;
-use arrow::array::ArrayRef;
-use arrow::array::BooleanArray;
-use arrow::array::RecordBatch;
-use arrow::array::StringArray;
-use arrow_schema::{Field, Schema};
-use std::fmt::{Display, Formatter};
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Database {
@@ -72,144 +72,6 @@ impl Database {
             "locations" => &self.locations,
             "styles" => &self.styles,
             _ => panic!("Table not found"),
-        }
-    }
-
-    pub fn semi_join(&self, query: &Atom, query_2: &Atom, table: &Table, table_2: &Table) -> Table {
-        let join_table = self.join(query, query_2, table, table_2);
-        let mut table = join_table.project(&query.terms);
-        table.set_name(&query.relation_name);
-        table
-    }
-
-    pub fn join(
-        &self,
-        left: &Atom,
-        right: &Atom,
-        left_table: &Table,
-        right_table: &Table,
-    ) -> Table {
-        let cartesian_product = self.cartesian_product(left_table, right_table);
-        let union = Atom::merge(left, right);
-        let mut join_table = self.select(&union, &cartesian_product);
-        let union = Atom::union(left, right);
-        join_table = join_table.project(&union);
-        join_table
-    }
-
-    fn cartesian_product(&self, left: &Table, right: &Table) -> Table {
-        let schema = Schema::new(
-            [
-                left.data
-                    .schema()
-                    .all_fields()
-                    .into_iter()
-                    .cloned()
-                    .collect::<Vec<_>>(),
-                right
-                    .data
-                    .schema()
-                    .all_fields()
-                    .into_iter()
-                    .cloned()
-                    .collect(),
-            ]
-            .concat(),
-        );
-        if left.data.num_rows() == 0 || right.data.num_rows() == 0 {
-            let d = RecordBatch::new_empty(Arc::new(schema));
-
-            return Table {
-                name: format!("{}_{}", left.name, right.name),
-                data: d,
-            };
-        }
-
-        let mut new_left_columns: Vec<ArrayRef> = vec![];
-        for column in left.data.columns() {
-            let clone = column.clone();
-            let v = std::iter::repeat(clone.as_ref())
-                .take(right.data.num_rows())
-                .collect::<Vec<_>>();
-            if v.is_empty() {
-                new_left_columns.push(clone.clone());
-                continue;
-            }
-            let new_column = arrow_select::concat::concat(&v).unwrap();
-
-            new_left_columns.push(new_column);
-        }
-        let mut new_right_columns = vec![];
-        for column in right.data.columns() {
-            let clone = column.clone();
-            let v = std::iter::repeat(clone.as_ref())
-                .take(left.data.num_rows())
-                .collect::<Vec<_>>();
-            if v.is_empty() {
-                new_right_columns.push(clone.clone());
-                continue;
-            }
-            let new_column = arrow_select::concat::concat(&v).unwrap();
-
-            new_right_columns.push(new_column);
-        }
-        let data = RecordBatch::try_new(
-            Arc::new(schema),
-            [
-                new_left_columns.into_iter().collect::<Vec<_>>(),
-                new_right_columns.into_iter().collect::<Vec<_>>(),
-            ]
-            .concat(),
-        )
-        .unwrap();
-        Table {
-            name: format!("{}_{}", left.name, right.name),
-            data,
-        }
-    }
-
-    pub fn select(&self, query: &Atom, table: &Table) -> Table {
-        let mut filter = BooleanArray::from(vec![true; table.get_data().num_rows()]);
-        for (index, term) in query.terms.iter().enumerate() {
-            match term {
-                Variable(name) => {
-                    let same_variables = query
-                        .terms
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, t)| {
-                            if let Variable(other_name) = t {
-                                name == other_name && index < *i
-                            } else {
-                                false
-                            }
-                        })
-                        .map(|(i, _)| i)
-                        .collect::<Vec<_>>();
-                    if same_variables.is_empty() {
-                        continue;
-                    }
-                    for same_var in same_variables {
-                        let var_filter = arrow_ord::cmp::eq(
-                            &table.get_column(&same_var).unwrap(),
-                            &table.get_column(&index).unwrap(),
-                        )
-                        .unwrap();
-                        filter = arrow::compute::and(&filter, &var_filter).unwrap();
-                    }
-                }
-                Constant(constant) => {
-                    let column = table.get_column(&index).unwrap();
-                    let constant_filter =
-                        arrow_ord::cmp::eq(&column, &StringArray::new_scalar(constant)).unwrap();
-                    filter = arrow::compute::and(&filter, &constant_filter).unwrap();
-                }
-            };
-        }
-        let data = arrow::compute::filter_record_batch(&table.get_data(), &filter).unwrap();
-        Table {
-            name: table.name.clone(),
-            data,
         }
     }
 }

@@ -9,11 +9,9 @@ use arrow::datatypes::{DataType, Field, Schema};
 
 fn load(path: &str, schema: Schema) -> RecordBatch {
     let file = File::open(format!("data/{}", path)).unwrap();
-    // get the file size
-    let file_size = file.metadata().unwrap().len();
     let mut csv_reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
         .with_header(true)
-        .with_batch_size(file_size as usize)
+        .with_batch_size(3000)
         .build(file)
         .unwrap();
 
