@@ -10,9 +10,7 @@ use crate::data_structure::table::Table;
 
 pub fn semi_join(query: &Atom, query_2: &Atom, table: &Table, table_2: &Table) -> Table {
     let join_table = join(query, query_2, table, table_2);
-    let mut table = join_table.project(&query.terms);
-    table.set_name(&query.relation_name);
-    table
+    join_table.project(&query.terms)
 }
 
 pub fn join(left: &Atom, right: &Atom, left_table: &Table, right_table: &Table) -> Table {

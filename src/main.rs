@@ -16,7 +16,7 @@ fn main() {
     let query = parse_queries("input.txt");
     let mut answers: Vec<Answer> = vec![];
     for (id, q) in query.iter().enumerate() {
-        let is_acyclic = is_acyclic(&q);
+        let is_acyclic = is_acyclic(q);
         if !is_acyclic {
             answers.push(Answer {
                 query_id: id + 1,
@@ -29,7 +29,7 @@ fn main() {
             });
             continue;
         }
-        let bool_answer = bool_answer(&q);
+        let bool_answer = bool_answer(q);
         if bool_answer.is_some() {
             answers.push(Answer {
                 query_id: id + 1,
@@ -42,8 +42,7 @@ fn main() {
             });
             continue;
         }
-        println!("Boolean answer: {:?}", bool_answer);
-        let answer = answers_query(&q);
+        let answer = answers_query(q);
         answers.push(Answer {
             query_id: id + 1,
             is_acyclic,

@@ -20,7 +20,6 @@ pub fn answers_query(query: &Query) -> [Vec<String>; 4] {
     }
     let database = get_database_with_query(query);
     let query = query.yannakakis(database);
-    println!("answer:\n{}", query);
     let mut answer: [Vec<String>; 4] = [vec![], vec![], vec![], vec![]];
     for i in 0..query.data.num_columns() {
         answer[i] = query.get_column_as_vec(i).unwrap();

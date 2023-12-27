@@ -20,6 +20,7 @@ impl JoinTree {
             edges: HashSet::new(),
         }
     }
+
     pub fn get_root(&self) -> Atom {
         self.edges
             .clone()
