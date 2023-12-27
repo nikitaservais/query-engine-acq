@@ -6,7 +6,7 @@ fn example_query_4() {
         "Answer(x,y,z,w):-Beers(u1,v,x,'0.05','18',u2,'Vienna Lager',u3),Locations(u4,v,y,z,w).",
     );
     let database = query_engine_acq::data_structure::schema::get_database();
-    let answer = query.yannakakis(database).unwrap();
+    let answer = query.yannakakis(database);
     let binding = answer.get_data();
     let x = binding
         .column_by_name("x")

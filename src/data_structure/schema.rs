@@ -2,6 +2,7 @@ use std::fs::File;
 use std::sync::Arc;
 
 use crate::data_structure::database::Database;
+use crate::data_structure::query::Query;
 use crate::data_structure::table::Table;
 use arrow;
 use arrow::array::RecordBatch;
@@ -100,4 +101,10 @@ pub fn get_database() -> Database {
             data: styles,
         },
     }
+}
+
+pub fn get_database_with_query(query: &Query) -> Database {
+    let mut database = get_database();
+    database.rename(query);
+    database
 }

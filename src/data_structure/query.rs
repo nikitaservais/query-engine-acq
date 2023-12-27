@@ -1,7 +1,12 @@
 use crate::data_structure::database::Database;
 use crate::data_structure::hypergraph::Hypergraph;
 use crate::data_structure::join_tree::JoinTree;
+use arrow::array::RecordBatch;
+use arrow::ipc::Schema;
+use arrow_schema::SchemaBuilder;
 use std::fmt;
+use std::ops::Not;
+use std::sync::Arc;
 
 use crate::data_structure::relational_algebra;
 use crate::data_structure::table::Table;
@@ -24,28 +29,25 @@ impl Query {
         }
     }
 
-    pub fn yannakakis(&self, mut database: Database) -> Option<Table> {
-        database.rename(self);
+    pub fn yannakakis(&self, database: Database) -> Table {
         let Some(join_tree) = self.construct_join_tree() else {
             println!("Not acyclic");
-            return None;
+            return Table::new_empty(self.head.relation_name.clone());
         };
         println!("join tree:\n{}", join_tree);
         if self.is_boolean() {
-            print!("Boolean query:");
-            self.yannakakis_boolean(&join_tree, &database);
-            return None;
+            return Table::new_empty(self.head.relation_name.clone());
         }
         let Some(consistent_database) = self.construct_consistent_db(&join_tree, &database) else {
             println!("Not consistent, no answer");
-            return None;
+            return Table::new_empty(self.head.relation_name.clone());
         };
         self.print_query_database(&consistent_database);
         let mut o_database = consistent_database.clone();
         let mut nodes = join_tree.get_nodes();
         while !nodes.is_empty() {
             let s = &join_tree.find_node_with_no_child_in_nodes(&nodes).unwrap();
-            if !join_tree.get_children(s).is_empty() {
+            if !join_tree.is_leaf(s) {
                 let union = Atom::union(s, &self.head);
                 println!("{:?}∪\n{:?}\n={:?}", s.terms, self.head.terms, union);
                 for child in join_tree.get_children(s) {
@@ -77,24 +79,27 @@ impl Query {
         let answer = big_o_r.project(&self.head.terms);
 
         println!("O_r:\n{}", answer);
-        Some(answer)
+        answer
     }
-    fn is_boolean(&self) -> bool {
+
+    pub fn is_boolean(&self) -> bool {
         self.head.terms.is_empty()
     }
 
-    fn yannakakis_boolean(&self, join_tree: &JoinTree, database: &Database) -> bool {
+    pub fn yannakakis_boolean(&self, database: &Database) -> bool {
+        if !self.is_boolean() {
+            return false;
+        }
+        let join_tree = self.construct_join_tree().unwrap();
         let root = join_tree.get_root();
-        let big_q = self.compute_big_q(join_tree, database);
+        let big_q = self.compute_big_q(&join_tree, database);
         if !big_q.get_table(&root.relation_name).is_empty() {
-            println!("answer: true");
             return true;
         }
-        print!("answer: false");
         false
     }
 
-    fn compute_big_q(&self, join_tree: &JoinTree, database: &Database) -> Database {
+    pub fn compute_big_q(&self, join_tree: &JoinTree, database: &Database) -> Database {
         let mut big_q: Database = database.clone();
         let mut nodes = join_tree.get_nodes();
         while !nodes.is_empty() {
@@ -158,7 +163,7 @@ impl Query {
         relational_algebra::select(atom, node_table)
     }
 
-    fn construct_join_tree(&self) -> Option<JoinTree> {
+    pub fn construct_join_tree(&self) -> Option<JoinTree> {
         if !self.is_acyclic() {
             return None;
         }
@@ -182,14 +187,13 @@ impl Query {
         join_tree: &JoinTree,
         database: &Database,
     ) -> Option<Database> {
-        let big_q: Database = self.compute_big_q(join_tree, database);
-        let root = join_tree.get_root();
-        let a_r = big_q.get_table(&root.relation_name);
-        if a_r.is_empty() {
-            return None;
-        }
+        let big_q = self.compute_big_q(join_tree, database);
         let mut a_database = database.clone();
-        a_database.set_table(&root.relation_name, a_r.clone());
+        let root = join_tree.get_root();
+        a_database.set_table(
+            &root.relation_name,
+            big_q.get_table(&root.relation_name).clone(),
+        );
         let mut nodes = join_tree.get_nodes();
         while !nodes.is_empty() {
             let s = &join_tree.find_node_with_no_parent_in_nodes(&nodes).unwrap();

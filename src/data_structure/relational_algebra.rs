@@ -19,7 +19,6 @@ pub fn join(left: &Atom, right: &Atom, left_table: &Table, right_table: &Table) 
     let cartesian_product = cartesian_product(left_table, right_table);
     let mut join_table = select(&Atom::merge(left, right), &cartesian_product);
     join_table = join_table.project(&Atom::union(left, right));
-    // join_table = join_table.filter_unique();
     join_table
 }
 
@@ -46,15 +45,15 @@ pub fn select(query: &Atom, table: &Table) -> Table {
                 }
                 for same_var in same_variables {
                     let var_filter = arrow_ord::cmp::eq(
-                        &table.get_column(&same_var).unwrap(),
-                        &table.get_column(&index).unwrap(),
+                        &table.get_column(same_var).unwrap(),
+                        &table.get_column(index).unwrap(),
                     )
                     .unwrap();
                     filter = arrow::compute::and(&filter, &var_filter).unwrap();
                 }
             }
             Constant(constant) => {
-                let column = table.get_column(&index).unwrap();
+                let column = table.get_column(index).unwrap();
                 let constant_filter =
                     arrow_ord::cmp::eq(&column, &StringArray::new_scalar(constant)).unwrap();
                 filter = arrow::compute::and(&filter, &constant_filter).unwrap();
@@ -98,21 +97,13 @@ fn cartesian_product(left: &Table, right: &Table) -> Table {
 
     let mut new_left_columns: Vec<ArrayRef> = vec![];
     for column in left.data.columns() {
-        let clone = column.clone();
-        let v = std::iter::repeat(clone.as_ref())
-            .take(right.data.num_rows())
-            .collect::<Vec<_>>();
-        let new_column = arrow_select::concat::concat(&v).unwrap();
+        let new_column = array_multiply(column, right.data.num_rows());
 
         new_left_columns.push(new_column);
     }
     let mut new_right_columns = vec![];
     for column in right.data.columns() {
-        let clone = column.clone();
-        let v = std::iter::repeat(clone.as_ref())
-            .take(left.data.num_rows())
-            .collect::<Vec<_>>();
-        let new_column = arrow_select::concat::concat(&v).unwrap();
+        let new_column = array_multiply(column, left.data.num_rows());
 
         new_right_columns.push(new_column);
     }
@@ -129,4 +120,13 @@ fn cartesian_product(left: &Table, right: &Table) -> Table {
         name: format!("{}_{}", left.name, right.name),
         data,
     }
+}
+
+fn array_multiply(array: &ArrayRef, times: usize) -> ArrayRef {
+    arrow_select::concat::concat(
+        &std::iter::repeat(array.as_ref())
+            .take(times)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
 }

@@ -1,10 +1,12 @@
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use crate::data_structure::query::Term;
 use crate::data_structure::query::Term::{Constant, Variable};
 use arrow::array::{Array, BooleanArray, RecordBatch, StringArray};
 use arrow::util::pretty::pretty_format_batches;
 use arrow_ord::cmp::distinct;
+use arrow_schema::SchemaBuilder;
 use arrow_select::filter::filter_record_batch;
 
 #[derive(Clone)]
@@ -24,22 +26,39 @@ impl Display for Table {
 }
 
 impl Table {
+    pub(crate) fn new_empty(name: String) -> Self {
+        Self {
+            name,
+            data: RecordBatch::new_empty(Arc::new(SchemaBuilder::new().finish())),
+        }
+    }
     pub fn set_data(&mut self, data: RecordBatch) {
         self.data = data;
     }
-
     pub fn set_name(&mut self, name: &str) {
         self.name = name.to_string();
     }
     pub fn get_data(&self) -> RecordBatch {
         self.data.clone()
     }
-
-    pub fn get_column(&self, index: &usize) -> Option<&StringArray> {
+    pub fn get_column(&self, index: usize) -> Option<&StringArray> {
         self.data
-            .column(*index)
+            .column(index)
             .as_any()
             .downcast_ref::<StringArray>()
+    }
+    pub fn get_column_as_vec(&self, index: usize) -> Option<Vec<String>> {
+        let Some(column) = self.get_column(index) else {
+            return None;
+        };
+        let vec = column
+            .iter()
+            .map(|x| match x {
+                None => "".to_string(),
+                Some(value) => value.to_string(),
+            })
+            .collect();
+        Some(vec)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -73,8 +92,8 @@ impl Table {
     }
 
     pub fn intersection(&self, table: &Table) -> Table {
-        let column = self.get_column(&0).unwrap();
-        let column_2 = table.get_column(&0).unwrap();
+        let column = self.get_column(0).unwrap();
+        let column_2 = table.get_column(0).unwrap();
         let mut filter = BooleanArray::from(vec![false; column.len()]);
         for i in 0..column_2.len() {
             let eq = arrow::compute::kernels::cmp::eq(
@@ -92,7 +111,7 @@ impl Table {
     }
 
     pub fn filter_unique(&self) -> Self {
-        let column = self.get_column(&0).unwrap();
+        let column = self.get_column(0).unwrap();
         let filter = distinct(column, column).unwrap();
         let data = filter_record_batch(&self.get_data(), &filter).unwrap();
         Table {

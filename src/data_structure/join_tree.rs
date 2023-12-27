@@ -83,6 +83,10 @@ impl JoinTree {
         };
         Some(node.clone())
     }
+
+    pub fn is_leaf(&self, node: &Atom) -> bool {
+        self.get_children(node).is_empty()
+    }
 }
 
 impl fmt::Display for JoinTree {
