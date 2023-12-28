@@ -17,7 +17,7 @@ impl Hypergraph {
         Hypergraph { hyperedges: edges }
     }
 
-    pub(crate) fn find_ear(&self) -> Option<(Atom, Atom)> {
+    pub fn find_ear(&self) -> Option<(Atom, Atom)> {
         for (ear_candidate, ear_vertices) in &self.hyperedges {
             // all vertices of the hyperedge are exclusive to that hyperedge
             if self.is_vertices_exclusive(ear_candidate, ear_vertices) {
@@ -77,5 +77,9 @@ impl Hypergraph {
             }
         }
         true
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.hyperedges.is_empty()
     }
 }
