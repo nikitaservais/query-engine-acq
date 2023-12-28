@@ -1,5 +1,5 @@
 use crate::data_structure::query::Query;
-use crate::data_structure::schema::get_database_with_query;
+use crate::data_structure::reader::get_database_with_query;
 
 pub fn is_acyclic(query: &Query) -> bool {
     query.is_acyclic()
